@@ -1,8 +1,8 @@
-node_modules/
 .env
 .env.*
-*.log
+!.env.example
+node_modules/
+*.db-shm
+*.db-wal
 npm-debug.log*
 shree-steel.db
-shree-steel.db-shm
-shree-steel.db-wal
