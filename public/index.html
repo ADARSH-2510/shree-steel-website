@@ -1,14 +1,332 @@
-<!doctype html><html lang="en"><head><meta name="google-site-verification" content="9icxLsfzIt0p8D6vgFXXQ_QaNm1hRrpC9nEgciqICCk" /><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/assets/shree-steel-favicon.png"><meta name="description" content="Shree Steel - Authorized Distributor & Building Solutions in Ambikapur"><title>Shree Steel | Building the Future</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/site.css"></head><body>
-<header><div class="container nav"><a href="#home"><img src="/assets/shree-steel-logo.png" class="logo" alt="Shree Steel"></a><nav><a href="#home">HOME</a><a href="#about">ABOUT</a><a href="#products">PRODUCTS</a><a href="#brands">BRANDS</a><a href="#calculator">CALCULATOR</a><a href="#why">WHY US</a><a href="#contact">CONTACT</a></nav><button class="btn primary" onclick="openQuote()">GET A QUOTE</button><button class="hamb" onclick="toggleNav()">☰</button></div></header>
-<section id="home" class="hero"><div class="container hero-grid"><div><span class="pill">AUTHORIZED DISTRIBUTOR & BUILDING SOLUTIONS</span><h1>BUILDING THE FUTURE WITH <em>TRUSTED FOUNDATIONS.</em></h1><p>Premium construction materials from trusted brands — supplied with dependable service, bulk availability, technical guidance and fast logistics.</p><div class="actions"><a class="btn primary" href="#products">EXPLORE PRODUCTS</a><button class="btn ghost" onclick="openQuote()">REQUEST A QUOTE</button></div><div class="proof"><span>✓ <b>100% ORIGINAL</b><small>PRODUCTS</small></span><span>▦ <b>BULK STOCK</b><small>AVAILABILITY</small></span><span>◎ <b>EXPERT HELP</b><small>GUIDANCE</small></span><span>↗ <b>FAST LOGISTICS</b><small>DELIVERY</small></span></div></div><div class="hero-img"><div class="float"><b>Strength. Durability. Integrity.</b><small>One reliable destination for construction materials.</small></div></div></div></section>
-<section id="brands" class="section"><div class="container"><div class="center"><span class="kicker">TRUSTED PARTNERS</span><h2>OUR OFFICIAL BRAND PARTNERS</h2><p class="lead">Manufacturer partnerships and dealership relationships represented by Shree Steel.</p></div><div id="brandGrid" class="brands"></div></div></section>
-<section id="products" class="section soft"><div class="container"><div class="center"><span class="kicker">WHAT WE SUPPLY</span><h2>OUR PRODUCTS</h2><p class="lead">Construction materials for residential, commercial and project requirements.</p></div><div id="productGrid" class="products"></div></div></section>
-<section id="calculator" class="section calculator-section"><div class="container"><div class="center"><span class="kicker">SMART BUILDING TOOL</span><h2>TMT STEEL WEIGHT CALCULATOR</h2><p class="lead">Calculate your TMT requirement using only the fields used by Shree Steel: number of bars, weight of one bar and price per kg. <b>No GST.</b></p></div><div class="calculator-card"><div class="calc-form"><label>Number of Bars<input id="calcQty" type="number" min="0" step="1" placeholder="e.g. 100"></label><label>Weight of One Bar (kg)<input id="calcBarWeight" type="number" min="0" step="0.001" placeholder="e.g. 10.656"></label><label>Price per kg (₹)<input id="calcPrice" type="number" min="0" step="0.01" placeholder="Enter current rate"></label><button class="btn primary" type="button" onclick="calculateTmt()">CALCULATE TOTAL</button><button class="btn ghost" type="button" onclick="resetCalculator()">RESET</button></div><div class="calc-result"><span>ESTIMATED TOTAL</span><strong id="calcWeight">1,065.60 kg</strong><div class="calc-total-row"><span>TOTAL WEIGHT</span><b id="calcWeightMini">1,065.60 kg</b></div><div class="calc-total-row"><span>TOTAL AMOUNT</span><b id="calcAmount">₹0.00</b></div><small id="calcDetail">Enter values to calculate</small><hr><div><b>Calculation</b><p>Total Weight = No. of Bars × Weight of One Bar</p><p>Total Amount = Total Weight × Price per kg</p></div><a class="calc-enq" href="#contact" onclick="openQuote('TMT Bars')">ENQUIRE FOR TMT →</a></div></div></div></section>
-<section id="about" class="section"><div class="container split"><div class="about-img"></div><div><span class="kicker">ABOUT SHREE STEEL</span><h2>BUILT ON QUALITY. DRIVEN BY TRUST.</h2><p class="lead left">We bridge the gap between world-class engineering and your construction needs. Our focus is simple: dependable products, practical guidance and service that helps your project move forward.</p><div class="checks"><span>✓ <b>Authorized Partnerships</b><small>Trusted manufacturer relationships.</small></span><span>✓ <b>Original Products</b><small>Quality-focused procurement.</small></span><span>✓ <b>Bulk Availability</b><small>Support for project requirements.</small></span><span>✓ <b>Site Delivery</b><small>Fast logistics to your site.</small></span></div><button class="btn primary" onclick="openQuote()">TALK TO SHREE STEEL</button></div></div></section>
-<section id="why" class="section soft"><div class="container center"><span class="kicker">THE SHREE STEEL ADVANTAGE</span><h2>WHY CHOOSE SHREE STEEL?</h2><div class="features"><div><i>✓</i><b>QUALITY ASSURED</b><p>100% original and premium quality construction materials.</p></div><div><i>▦</i><b>BULK AVAILABILITY</b><p>Ready supply for residential, commercial and project needs.</p></div><div><i>◎</i><b>EXPERT GUIDANCE</b><p>Practical assistance in choosing the right material.</p></div><div><i>↗</i><b>TIMELY DELIVERY</b><p>Fast and dependable logistics to your site.</p></div></div></div></section>
-<section class="cta"><div class="container cta-inner"><div><h2>BUILDING SOMETHING GREAT?</h2><p>Tell us what you need and get a quote from Shree Steel.</p></div><button class="btn white" onclick="openQuote()">GET A QUOTE</button></div></section>
-<section id="contact" class="section"><div class="container"><div class="center"><span class="kicker">CONTACT US</span><h2>LET'S BUILD WITH CONFIDENCE.</h2></div><div class="contact-grid"><div class="contact-card"><p><b>ADDRESS</b><br>Near Hotel Bandhan Inn, Bhagwanpur, Ambikapur, Surguja, Chhattisgarh – 497001</p><p><b>PHONE</b><br><a href="tel:+918224899000">8224899000</a></p><p><b>EMAIL</b><br><a href="mailto:ravishreesteel@gmail.com">ravishreesteel@gmail.com</a></p><p><b>BUSINESS HOURS</b><br>9:00 AM – 8:00 PM</p><button class="btn primary" onclick="openQuote()">REQUEST A QUOTE</button></div><div class="map"><span>SHREE STEEL<br><small>Ambikapur, Chhattisgarh</small></span></div></div></div></section>
-<footer><div class="container foot"><div><img src="/assets/shree-steel-logo.png" class="logo" alt="Shree Steel"><p>AUTHORIZED DISTRIBUTOR & BUILDING SOLUTIONS</p></div><div><b>PRODUCTS</b><a href="#products">TMT Bars</a><a href="#products">Cement</a><a href="#products">Roofing Sheets</a><a href="#products">Structural Steel</a></div><div><b>CONTACT</b><a href="tel:+918224899000">8224899000</a><a href="mailto:ravishreesteel@gmail.com">ravishreesteel@gmail.com</a><span>Ambikapur, Chhattisgarh</span></div></div><div class="copyright">© 2026 Shree Steel. All Rights Reserved.</div></footer>
-<a class="wa" href="https://wa.me/918224899000?text=Hello%20Shree%20Steel%2C%20I%20would%20like%20to%20enquire%20about%20your%20products." target="_blank">WA</a>
-<div id="modal" class="modal"><div class="modal-box"><button onclick="closeQuote()" class="close">×</button><span class="kicker">SHREE STEEL</span><h2>Request a Quote</h2><form id="quoteForm"><input id="qname" required placeholder="Your name"><input id="qphone" required placeholder="Mobile number"><select id="qproduct"><option value="">Select product</option></select><textarea id="qmessage" rows="4" placeholder="Requirement / quantity / delivery location"></textarea><button class="btn primary" type="submit">SEND ENQUIRY</button></form><p id="formMsg"></p></div></div>
-<script src="/site.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta
+      name="google-site-verification"
+      content="9icxLsfzIt0p8D6vgFXXQ_QaNm1hRrpC9nEgciqICCk"
+    />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" type="image/png" href="/assets/shree-steel-favicon.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Shree Steel",
+        "alternateName": "Shree Steel Ambikapur",
+        "url": "https://shreesteelambikapur.up.railway.app/"
+      }
+    </script>
+    <meta
+      name="description"
+      content="Shree Steel - Authorized Distributor & Building Solutions in Ambikapur"
+    />
+    <meta name="author" content="Shree Steel Ambikapur">
+<meta name="application-name" content="Shree Steel">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Shree Steel">
+<meta property="og:title" content="Shree Steel | Building the Future">
+<meta property="og:description" content="Authorized Distributor & Building Solutions in Ambikapur.">
+<meta property="og:url" content="https://shreesteelambikapur.up.railway.app/">
+<meta property="og:image" content="https://shreesteelambikapur.up.railway.app/assets/shree-steel-logo.png">
+<meta name="twitter:card" content="summary">
+    <title>Shree Steel | Building the Future</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <header>
+      <div class="container nav">
+        <a href="#home"
+          ><img
+            src="/assets/shree-steel-logo.png"
+            class="logo"
+            alt="Shree Steel"
+        /></a>
+        <nav>
+          <a href="#home">HOME</a><a href="#about">ABOUT</a
+          ><a href="#products">PRODUCTS</a><a href="#brands">BRANDS</a
+          ><a href="#calculator">CALCULATOR</a><a href="#why">WHY US</a
+          ><a href="#contact">CONTACT</a>
+        </nav>
+        <button class="btn primary" onclick="openQuote()">GET A QUOTE</button
+        ><button class="hamb" onclick="toggleNav()">☰</button>
+      </div>
+    </header>
+    <section id="home" class="hero">
+      <div class="container hero-grid">
+        <div>
+          <span class="pill">AUTHORIZED DISTRIBUTOR & BUILDING SOLUTIONS</span>
+          <h1>BUILDING THE FUTURE WITH <em>TRUSTED FOUNDATIONS.</em></h1>
+          <p>
+            Premium construction materials from trusted brands — supplied with
+            dependable service, bulk availability, technical guidance and fast
+            logistics.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href="#products">EXPLORE PRODUCTS</a
+            ><button class="btn ghost" onclick="openQuote()">
+              REQUEST A QUOTE
+            </button>
+          </div>
+          <div class="proof">
+            <span>✓ <b>100% ORIGINAL</b><small>PRODUCTS</small></span
+            ><span>▦ <b>BULK STOCK</b><small>AVAILABILITY</small></span
+            ><span>◎ <b>EXPERT HELP</b><small>GUIDANCE</small></span
+            ><span>↗ <b>FAST LOGISTICS</b><small>DELIVERY</small></span>
+          </div>
+        </div>
+        <div class="hero-img">
+          <div class="float">
+            <b>Strength. Durability. Integrity.</b
+            ><small>One reliable destination for construction materials.</small>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="brands" class="section">
+      <div class="container">
+        <div class="center">
+          <span class="kicker">TRUSTED PARTNERS</span>
+          <h2>OUR OFFICIAL BRAND PARTNERS</h2>
+          <p class="lead">
+            Manufacturer partnerships and dealership relationships represented
+            by Shree Steel.
+          </p>
+        </div>
+        <div id="brandGrid" class="brands"></div>
+      </div>
+    </section>
+    <section id="products" class="section soft">
+      <div class="container">
+        <div class="center">
+          <span class="kicker">WHAT WE SUPPLY</span>
+          <h2>OUR PRODUCTS</h2>
+          <p class="lead">
+            Construction materials for residential, commercial and project
+            requirements.
+          </p>
+        </div>
+        <div id="productGrid" class="products"></div>
+      </div>
+    </section>
+    <section id="calculator" class="section calculator-section">
+      <div class="container">
+        <div class="center">
+          <span class="kicker">SMART BUILDING TOOL</span>
+          <h2>TMT STEEL WEIGHT CALCULATOR</h2>
+          <p class="lead">
+            Calculate your TMT requirement using only the fields used by Shree
+            Steel: number of bars, weight of one bar and price per kg.
+            <b>No GST.</b>
+          </p>
+        </div>
+        <div class="calculator-card">
+          <div class="calc-form">
+            <label
+              >Number of Bars<input
+                id="calcQty"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="e.g. 100" /></label
+            ><label
+              >Weight of One Bar (kg)<input
+                id="calcBarWeight"
+                type="number"
+                min="0"
+                step="0.001"
+                placeholder="e.g. 10.656" /></label
+            ><label
+              >Price per kg (₹)<input
+                id="calcPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Enter current rate" /></label
+            ><button class="btn primary" type="button" onclick="calculateTmt()">
+              CALCULATE TOTAL</button
+            ><button
+              class="btn ghost"
+              type="button"
+              onclick="resetCalculator()"
+            >
+              RESET
+            </button>
+          </div>
+          <div class="calc-result">
+            <span>ESTIMATED TOTAL</span
+            ><strong id="calcWeight">1,065.60 kg</strong>
+            <div class="calc-total-row">
+              <span>TOTAL WEIGHT</span><b id="calcWeightMini">1,065.60 kg</b>
+            </div>
+            <div class="calc-total-row">
+              <span>TOTAL AMOUNT</span><b id="calcAmount">₹0.00</b>
+            </div>
+            <small id="calcDetail">Enter values to calculate</small>
+            <hr />
+            <div>
+              <b>Calculation</b>
+              <p>Total Weight = No. of Bars × Weight of One Bar</p>
+              <p>Total Amount = Total Weight × Price per kg</p>
+            </div>
+            <a class="calc-enq" href="#contact" onclick="openQuote('TMT Bars')"
+              >ENQUIRE FOR TMT →</a
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="about" class="section">
+      <div class="container split">
+        <div class="about-img"></div>
+        <div>
+          <span class="kicker">ABOUT SHREE STEEL</span>
+          <h2>BUILT ON QUALITY. DRIVEN BY TRUST.</h2>
+          <p class="lead left">
+            We bridge the gap between world-class engineering and your
+            construction needs. Our focus is simple: dependable products,
+            practical guidance and service that helps your project move forward.
+          </p>
+          <div class="checks">
+            <span
+              >✓ <b>Authorized Partnerships</b
+              ><small>Trusted manufacturer relationships.</small></span
+            ><span
+              >✓ <b>Original Products</b
+              ><small>Quality-focused procurement.</small></span
+            ><span
+              >✓ <b>Bulk Availability</b
+              ><small>Support for project requirements.</small></span
+            ><span
+              >✓ <b>Site Delivery</b
+              ><small>Fast logistics to your site.</small></span
+            >
+          </div>
+          <button class="btn primary" onclick="openQuote()">
+            TALK TO SHREE STEEL
+          </button>
+        </div>
+      </div>
+    </section>
+    <section id="why" class="section soft">
+      <div class="container center">
+        <span class="kicker">THE SHREE STEEL ADVANTAGE</span>
+        <h2>WHY CHOOSE SHREE STEEL?</h2>
+        <div class="features">
+          <div>
+            <i>✓</i><b>QUALITY ASSURED</b>
+            <p>100% original and premium quality construction materials.</p>
+          </div>
+          <div>
+            <i>▦</i><b>BULK AVAILABILITY</b>
+            <p>Ready supply for residential, commercial and project needs.</p>
+          </div>
+          <div>
+            <i>◎</i><b>EXPERT GUIDANCE</b>
+            <p>Practical assistance in choosing the right material.</p>
+          </div>
+          <div>
+            <i>↗</i><b>TIMELY DELIVERY</b>
+            <p>Fast and dependable logistics to your site.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="cta">
+      <div class="container cta-inner">
+        <div>
+          <h2>BUILDING SOMETHING GREAT?</h2>
+          <p>Tell us what you need and get a quote from Shree Steel.</p>
+        </div>
+        <button class="btn white" onclick="openQuote()">GET A QUOTE</button>
+      </div>
+    </section>
+    <section id="contact" class="section">
+      <div class="container">
+        <div class="center">
+          <span class="kicker">CONTACT US</span>
+          <h2>LET'S BUILD WITH CONFIDENCE.</h2>
+        </div>
+        <div class="contact-grid">
+          <div class="contact-card">
+            <p>
+              <b>ADDRESS</b><br />Near Hotel Bandhan Inn, Bhagwanpur, Ambikapur,
+              Surguja, Chhattisgarh – 497001
+            </p>
+            <p><b>PHONE</b><br /><a href="tel:+918224899000">8224899000</a></p>
+            <p>
+              <b>EMAIL</b><br /><a href="mailto:ravishreesteel@gmail.com"
+                >ravishreesteel@gmail.com</a
+              >
+            </p>
+            <p><b>BUSINESS HOURS</b><br />9:00 AM – 8:00 PM</p>
+            <button class="btn primary" onclick="openQuote()">
+              REQUEST A QUOTE
+            </button>
+          </div>
+          <div class="map">
+            <span>SHREE STEEL<br /><small>Ambikapur, Chhattisgarh</small></span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <footer>
+      <div class="container foot">
+        <div>
+          <img
+            src="/assets/shree-steel-logo.png"
+            class="logo"
+            alt="Shree Steel"
+          />
+          <p>AUTHORIZED DISTRIBUTOR & BUILDING SOLUTIONS</p>
+        </div>
+        <div>
+          <b>PRODUCTS</b><a href="#products">TMT Bars</a
+          ><a href="#products">Cement</a><a href="#products">Roofing Sheets</a
+          ><a href="#products">Structural Steel</a>
+        </div>
+        <div>
+          <b>CONTACT</b><a href="tel:+918224899000">8224899000</a
+          ><a href="mailto:ravishreesteel@gmail.com">ravishreesteel@gmail.com</a
+          ><span>Ambikapur, Chhattisgarh</span>
+        </div>
+      </div>
+      <div class="copyright">© 2026 Shree Steel. All Rights Reserved.</div>
+    </footer>
+    <a
+      class="wa"
+      href="https://wa.me/918224899000?text=Hello%20Shree%20Steel%2C%20I%20would%20like%20to%20enquire%20about%20your%20products."
+      target="_blank"
+      >WA</a
+    >
+    <div id="modal" class="modal">
+      <div class="modal-box">
+        <button onclick="closeQuote()" class="close">×</button
+        ><span class="kicker">SHREE STEEL</span>
+        <h2>Request a Quote</h2>
+        <form id="quoteForm">
+          <input id="qname" required placeholder="Your name" /><input
+            id="qphone"
+            required
+            placeholder="Mobile number"
+          /><select id="qproduct">
+            <option value="">Select product</option></select
+          ><textarea
+            id="qmessage"
+            rows="4"
+            placeholder="Requirement / quantity / delivery location"
+          ></textarea
+          ><button class="btn primary" type="submit">SEND ENQUIRY</button>
+        </form>
+        <p id="formMsg"></p>
+      </div>
+    </div>
+    <script src="/site.js"></script>
+  </body>
+</html>
