@@ -4,9 +4,13 @@ const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt
 const logoByName = name => brands.find(b => b.name.toLowerCase() === name.toLowerCase())?.logo || '';
 
 function productVisual(product, index) {
-  const logos = (product.brands || '').split(',').map(x => logoByName(x.trim())).filter(Boolean).slice(0, 3);
-  const visual = logos.length
-    ? logos.map(src => `<img src="${esc(src)}" alt="Brand logo" loading="lazy">`).join('')
+  const logoEntries = (product.brands || '').split(',').map(x => {
+  const name = x.trim();
+  const brand = brands.find(b => b.name.toLowerCase() === name.toLowerCase());
+  return brand?.logo ? { name, logo: brand.logo } : null;
+}).filter(Boolean).slice(0, 3);
+  const visual = logoEntries.length
+  ? logoEntries.map(({ name, logo }) => `<img src="${esc(logo)}" alt="${esc(name)} logo" loading="lazy">`).join('')
     : `<span class="product-symbol">${esc(product.name.slice(0, 2).toUpperCase())}</span>`;
   return `<div class="product-visual v${index % 6}"><div class="product-logo-stack">${visual}</div><div class="product-title">${esc(product.name)}</div></div>`;
 }
