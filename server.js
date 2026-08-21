@@ -1,4 +1,4 @@
-const http = require('node:http');
+﻿const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -129,11 +129,24 @@ async function initializeDatabase() {
     });
 
     if (existing.rows.length) {
-      await db.execute({
-        sql: 'UPDATE products SET category=?,brands=?,description=?,available=?,sort_order=? WHERE name=?',
-        args: [x[1], x[2], x[3], x[4], x[5], x[0]]
-      });
-    } else {
+  await db.execute({
+    sql: `
+      UPDATE products
+      SET category=?,
+          brands=?,
+          description=?,
+          sort_order=?
+      WHERE name=?
+    `,
+    args: [
+      x[1],
+      x[2],
+      x[3],
+      x[5],
+      x[0]
+    ]
+  });
+} else {
       await db.execute({
         sql: 'INSERT INTO products(name,category,brands,description,available,sort_order) VALUES(?,?,?,?,?,?)',
         args: x
@@ -260,6 +273,419 @@ async function startServer() {
         return send(res, 200, r.rows);
       }
 
+      if (req.method === 'GET' && p === '/api/quote-data') {
+        const productRows = await db.execute({
+          sql: `
+            SELECT id, name, category, description, default_unit
+            FROM products
+            WHERE available=1 AND visible=1
+            ORDER BY sort_order,id
+          `
+        });
+
+        const products = [];
+
+        for (const product of productRows.rows) {
+          const brandRows = await db.execute({
+            sql: `
+              SELECT b.id, b.name
+              FROM product_brands pb
+              JOIN brands b ON b.id=pb.brand_id
+              WHERE pb.product_id=? AND b.visible=1
+              ORDER BY b.sort_order,b.id
+            `,
+            args: [Number(product.id)]
+          });
+
+          const optionRows = await db.execute({
+            sql: `
+              SELECT id, option_name, option_value
+              FROM product_options
+              WHERE product_id=? AND available=1
+              ORDER BY sort_order,id
+            `,
+            args: [Number(product.id)]
+          });
+
+          products.push({
+            id: Number(product.id),
+            name: product.name,
+            category: product.category,
+            description: product.description,
+            unit: product.default_unit,
+            brands: brandRows.rows.map(b => ({
+              id: Number(b.id),
+              name: b.name
+            })),
+            options: optionRows.rows.map(o => ({
+              id: Number(o.id),
+              name: o.option_name,
+              value: o.option_value
+            }))
+          });
+        }
+
+        return send(res, 200, { products });
+      }
+      if (req.method === 'POST' && p === '/api/quote') {
+        const x = await body(req);
+
+        const name = String(x.name || '').trim();
+        const phone = String(x.phone || '').trim();
+        const location = String(x.location || '').trim();
+        const additionalRequirement =
+          String(x.additionalRequirement || '').trim();
+
+        const items = Array.isArray(x.items) ? x.items : [];
+
+        if (!name || !phone) {
+          return send(res, 400, {
+            error: 'Name and phone are required'
+          });
+        }
+
+        if (items.length === 0) {
+          return send(res, 400, {
+            error: 'At least one product is required'
+          });
+        }
+
+        if (items.length > 50) {
+          return send(res, 400, {
+            error: 'Too many quote items'
+          });
+        }
+
+        // --------------------------------------------------------
+        // Validate customer phone
+        // --------------------------------------------------------
+
+        const cleanPhone = phone.replace(/[\s-]/g, '');
+
+        if (!/^\+?[0-9]{10,15}$/.test(cleanPhone)) {
+          return send(res, 400, {
+            error: 'Please enter a valid mobile number'
+          });
+        }
+
+        // --------------------------------------------------------
+        // Find or create customer
+        // --------------------------------------------------------
+
+        let customer = await db.execute({
+          sql: `
+            SELECT id
+            FROM customers
+            WHERE phone=?
+            LIMIT 1
+          `,
+          args: [cleanPhone]
+        });
+
+        let customerId;
+
+        if (customer.rows.length) {
+          customerId = Number(customer.rows[0].id);
+
+          await db.execute({
+            sql: `
+              UPDATE customers
+              SET name=?, location=?
+              WHERE id=?
+            `,
+            args: [
+              name,
+              location,
+              customerId
+            ]
+          });
+        } else {
+          const r = await db.execute({
+            sql: `
+              INSERT INTO customers(
+                name,
+                phone,
+                location
+              )
+              VALUES(?,?,?)
+            `,
+            args: [
+              name,
+              cleanPhone,
+              location
+            ]
+          });
+
+          customerId = Number(r.lastInsertRowid);
+        }
+
+        // --------------------------------------------------------
+        // Validate and prepare every quote item
+        // --------------------------------------------------------
+
+        const preparedItems = [];
+
+        for (const item of items) {
+          const productId = Number(item.productId);
+          const brandId =
+            item.brandId === null ||
+            item.brandId === undefined ||
+            item.brandId === ''
+              ? null
+              : Number(item.brandId);
+
+          const quantity = Number(item.quantity);
+
+          if (!Number.isInteger(productId) || productId <= 0) {
+            return send(res, 400, {
+              error: 'Invalid product'
+            });
+          }
+
+          if (
+            brandId !== null &&
+            (!Number.isInteger(brandId) || brandId <= 0)
+          ) {
+            return send(res, 400, {
+              error: 'Invalid brand'
+            });
+          }
+
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            return send(res, 400, {
+              error: 'Quantity must be greater than zero'
+            });
+          }
+
+          if (quantity > 1000000) {
+            return send(res, 400, {
+              error: 'Quantity is too large'
+            });
+          }
+
+          // ------------------------------------------------------
+          // Product must be customer-available
+          // ------------------------------------------------------
+
+          const product = await db.execute({
+            sql: `
+              SELECT
+                id,
+                name,
+                default_unit,
+                available,
+                visible
+              FROM products
+              WHERE id=?
+              LIMIT 1
+            `,
+            args: [productId]
+          });
+
+          if (!product.rows.length) {
+            return send(res, 400, {
+              error: 'Product not found'
+            });
+          }
+
+          const pRow = product.rows[0];
+
+          if (!Number(pRow.available) || !Number(pRow.visible)) {
+            return send(res, 400, {
+              error: `${pRow.name} is currently unavailable`
+            });
+          }
+
+          // ------------------------------------------------------
+          // Validate brand ↔ product relationship
+          // ------------------------------------------------------
+
+          if (brandId !== null) {
+            const relationship = await db.execute({
+              sql: `
+                SELECT 1
+                FROM product_brands
+                WHERE product_id=? AND brand_id=?
+                LIMIT 1
+              `,
+              args: [
+                productId,
+                brandId
+              ]
+            });
+
+            if (!relationship.rows.length) {
+              return send(res, 400, {
+                error: 'Selected brand is not available for this product'
+              });
+            }
+
+            const brand = await db.execute({
+              sql: `
+                SELECT id, name, visible
+                FROM brands
+                WHERE id=?
+                LIMIT 1
+              `,
+              args: [brandId]
+            });
+
+            if (
+              !brand.rows.length ||
+              !Number(brand.rows[0].visible)
+            ) {
+              return send(res, 400, {
+                error: 'Selected brand is unavailable'
+              });
+            }
+          }
+
+          // ------------------------------------------------------
+          // Product-specific option
+          // ------------------------------------------------------
+
+          const specification =
+            String(item.specification || '').trim();
+
+          if (specification) {
+            const option = await db.execute({
+              sql: `
+                SELECT id
+                FROM product_options
+                WHERE product_id=?
+                  AND option_value=?
+                  AND available=1
+                LIMIT 1
+              `,
+              args: [
+                productId,
+                specification
+              ]
+            });
+
+            if (!option.rows.length) {
+              return send(res, 400, {
+                error: 'Invalid product specification'
+              });
+            }
+          }
+
+          // ------------------------------------------------------
+          // Unit comes from the database, NOT the browser
+          // ------------------------------------------------------
+
+          const unit = String(pRow.default_unit);
+
+          preparedItems.push({
+            productId,
+            brandId,
+            specification,
+            quantity,
+            unit
+          });
+        }
+
+        // --------------------------------------------------------
+        // Generate unique enquiry number
+        // --------------------------------------------------------
+
+        let enquiryNo;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const stamp = new Date()
+            .toISOString()
+            .replace(/\D/g, '')
+            .slice(0, 14);
+
+          const random = crypto
+            .randomBytes(4)
+            .toString('hex')
+            .toUpperCase();
+
+          const candidate = `SS-${stamp}-${random}`;
+
+          const existing = await db.execute({
+            sql: `
+              SELECT id
+              FROM quote_enquiries
+              WHERE enquiry_no=?
+              LIMIT 1
+            `,
+            args: [candidate]
+          });
+
+          if (!existing.rows.length) {
+            enquiryNo = candidate;
+            break;
+          }
+        }
+
+        if (!enquiryNo) {
+          return send(res, 500, {
+            error: 'Could not create enquiry number'
+          });
+        }
+
+        // --------------------------------------------------------
+        // Create quote
+        // --------------------------------------------------------
+
+        const quote = await db.execute({
+          sql: `
+            INSERT INTO quote_enquiries(
+              enquiry_no,
+              customer_id,
+              additional_requirement,
+              status
+            )
+            VALUES(?,?,?,?)
+          `,
+          args: [
+            enquiryNo,
+            customerId,
+            additionalRequirement,
+            'NEW'
+          ]
+        });
+
+        const enquiryId =
+          Number(quote.lastInsertRowid);
+
+        // --------------------------------------------------------
+        // Insert all quote items
+        // --------------------------------------------------------
+
+        for (const item of preparedItems) {
+          await db.execute({
+            sql: `
+              INSERT INTO quote_items(
+                enquiry_id,
+                product_id,
+                brand_id,
+                specification,
+                quantity,
+                unit
+              )
+              VALUES(?,?,?,?,?,?)
+            `,
+            args: [
+              enquiryId,
+              item.productId,
+              item.brandId,
+              item.specification,
+              item.quantity,
+              item.unit
+            ]
+          });
+        }
+
+        return send(res, 200, {
+          ok: true,
+          enquiryNo,
+          enquiryId,
+          itemCount: preparedItems.length
+        });
+      }
       if (req.method === 'POST' && p === '/api/enquiries') {
         const x = await body(req);
 
@@ -347,6 +773,62 @@ async function startServer() {
         const type = parts[2];
         const id = parts[3] ? Number(parts[3]) : null;
 
+        if (req.method === 'GET' && type === 'quotes') {
+          const quotes = await db.execute(`
+            SELECT
+              qe.id,
+              qe.enquiry_no,
+              qe.status,
+              qe.created_at,
+              c.name AS customer_name,
+              c.phone,
+              c.location,
+              qe.additional_requirement
+            FROM quote_enquiries qe
+            JOIN customers c
+              ON c.id = qe.customer_id
+            ORDER BY qe.id DESC
+          `);
+
+          const result = [];
+
+          for (const q of quotes.rows) {
+            const items = await db.execute({
+              sql: `
+                SELECT
+                  qi.id,
+                  p.name AS product,
+                  b.name AS brand,
+                  qi.specification,
+                  qi.quantity,
+                  qi.unit
+                FROM quote_items qi
+                JOIN products p
+                  ON p.id = qi.product_id
+                LEFT JOIN brands b
+                  ON b.id = qi.brand_id
+                WHERE qi.enquiry_id=?
+                ORDER BY qi.id
+              `,
+              args: [Number(q.id)]
+            });
+
+            result.push({
+              id: Number(q.id),
+              enquiry_no: q.enquiry_no,
+              status: q.status,
+              created_at: q.created_at,
+              customer_name: q.customer_name,
+              phone: q.phone,
+              location: q.location,
+              additional_requirement:
+                q.additional_requirement || '',
+              items: items.rows
+            });
+          }
+
+          return send(res, 200, result);
+        }
         if (req.method === 'GET' && type === 'enquiries') {
           const r = await db.execute(
             'SELECT * FROM enquiries ORDER BY id DESC'
@@ -571,3 +1053,6 @@ startServer().catch(error => {
   console.error('Database initialization failed:', error);
   process.exit(1);
 });
+
+
+
