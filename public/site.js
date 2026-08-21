@@ -135,10 +135,10 @@ function openBrandDetails(productName, brandName) {
     ${varieties.length ? `<div class="brand-variety-block"><strong>PRODUCTS / VARIETIES</strong><div class="brand-variety-cards">${varieties.map(v => `
       <article class="brand-variety-card">
         <div class="brand-variety-media">${v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : `<div class="brand-variety-placeholder">${logo ? `<img src="${esc(logo)}" alt="${esc(label)}">` : esc(label.slice(0,2).toUpperCase())}<span>PRODUCT IMAGE</span></div>`}</div>
-        <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
-        <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT â†’</button>
+        <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE →</a>` : ''}</div>
+        <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT →</button>
       </article>`).join('')}</div></div>` : `<p class="brand-no-variety">Product details and current sizes are available on enquiry. Request a quote to tell us exactly what you need.</p>`}
-    <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE â†’</button>`;
+    <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE →</button>`;
   $('brandDetailsModal').classList.add('show');
 }
 function closeBrandDetails() { $('brandDetailsModal').classList.remove('show'); }
@@ -199,9 +199,9 @@ async function load() {
     $('productGrid').innerHTML = displayProducts.map((p, i) => {
       const productBrands = productBrandData(p);
       const brandMarkup = productBrands.length
-        ? `<div class="trusted-brands"><div class="trusted-brands-label">TRUSTED BRANDS Â· TAP A BRAND TO VIEW</div><div class="product-brand-list">${productBrands.map(b => brandDetailsMarkup(b, p)).join('')}</div></div>`
+        ? `<div class="trusted-brands"><div class="trusted-brands-label">TRUSTED BRANDS · TAP A BRAND TO VIEW</div><div class="product-brand-list">${productBrands.map(b => brandDetailsMarkup(b, p)).join('')}</div></div>`
         : '';
-      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" onclick="${p.__syntheticPipes ? 'openQuote()' : `openQuoteByName(${JSON.stringify(p.name)})`}">REQUEST MY QUOTE â†’</button></div></article>`;
+      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" onclick="${p.__syntheticPipes ? 'openQuote()' : `openQuoteByName(${JSON.stringify(p.name)})`}">REQUEST MY QUOTE →</button></div></article>`;
     }).join('');
   } catch (error) {
     console.error(error);
@@ -276,7 +276,7 @@ $('quoteForm').addEventListener('submit', async event => {
   };
   try {
     $('quoteSubmit').disabled = true;
-    $('quoteSubmit').textContent = 'SUBMITTINGâ€¦';
+    $('quoteSubmit').textContent = 'SUBMITTING…';
     const response = await fetch('/api/quote', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
     const result = await response.json();
     if (!response.ok) { $('formMsg').textContent = result.error || 'Please try again'; return; }
@@ -286,7 +286,7 @@ $('quoteForm').addEventListener('submit', async event => {
       return `${i + 1}. ${displayProductName(p?.name || 'Product')}${b ? ` | ${displayBrandName(b)}` : ''}${x.specification ? ` | ${x.specification}` : ''} | Qty: ${x.quantity} ${p?.unit || ''}`;
     });
     const text = encodeURIComponent(`Hello Shree Steel, I would like to request a quote.\n\nEnquiry: ${result.enquiryNo}\nName: ${data.name}\nPhone: ${data.phone}\nLocation: ${data.location}\n\nRequirements:\n${lines.join('\n')}\n\nAdditional requirement: ${data.additionalRequirement || 'None'}`);
-    $('formMsg').textContent = `Enquiry ${result.enquiryNo} saved. Opening WhatsAppâ€¦`;
+    $('formMsg').textContent = `Enquiry ${result.enquiryNo} saved. Opening WhatsApp…`;
     window.open(`https://wa.me/918224899000?text=${text}`, '_blank');
     setTimeout(() => { closeQuote(); resetQuoteForm(); }, 900);
   } catch (error) { $('formMsg').textContent = 'Unable to send enquiry. Please try again.'; }
@@ -742,5 +742,7 @@ load();
   start();
 
 })();
+
+
 
 
