@@ -1,8 +1,9 @@
-﻿const http = require('node:http');
+const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { createClient } = require('@libsql/client');
+const bcrypt = require('bcryptjs');
 
 function loadEnv(file = path.join(__dirname, '.env')) {
   try {
@@ -23,13 +24,29 @@ const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const SECRET = process.env.SESSION_SECRET;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const TMT_STEEL_SPECIFICATIONS = ['8 mm', '10 mm', '12 mm', '16 mm', '20 mm', '25 mm', '32 mm'];
+function normalizeProductRow(row){
+  if(!row) return row;
+  return {...row, specifications: ensureTmtSteelSpecifications(row.name,row.specifications||'')};
+}
+function ensureTmtSteelSpecifications(name, specifications){
+  if(String(name||'').trim().toLowerCase()==='tmt steel') return TMT_STEEL_SPECIFICATIONS.join('\n');
+  return specifications;
+}
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
+const ADMIN_RECOVERY_EMAIL = process.env.ADMIN_RECOVERY_EMAIL || '';
+const ADMIN_RECOVERY_EMAIL_2 = process.env.ADMIN_RECOVERY_EMAIL_2 || '';
+const SECRET = process.env.SESSION_SECRET || '';
 const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL;
 const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
 
-if (!ADMIN_PASSWORD || !SECRET) {
-  console.error('Missing ADMIN_PASSWORD or SESSION_SECRET.');
+if (!SECRET) {
+  console.error('Missing SESSION_SECRET.');
+  process.exit(1);
+}
+if (!ADMIN_PASSWORD && !ADMIN_EMAIL) {
+  console.error('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env for the initial admin account.');
   process.exit(1);
 }
 
@@ -44,6 +61,166 @@ const db = createClient({
 });
 
 const sessions = new Set();
+const recoverySessions = new Set();
+
+
+async function tableColumns(table) {
+  const r = await db.execute(`PRAGMA table_info(${table})`);
+  return new Set(r.rows.map(row => String(row.name)));
+}
+async function ensureColumn(table, column, definition) {
+  const columns = await tableColumns(table);
+  if (!columns.has(column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+async function ensureAdminAccount() {
+  await db.execute(`CREATE TABLE IF NOT EXISTS admin_accounts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,
+    recovery_email_1 TEXT NOT NULL DEFAULT '',recovery_email_2 TEXT NOT NULL DEFAULT '',
+    reset_token_hash TEXT NOT NULL DEFAULT '',reset_expires_at TEXT NOT NULL DEFAULT '',
+    otp_challenge_hash TEXT NOT NULL DEFAULT '',otp_code_hash TEXT NOT NULL DEFAULT '',
+    otp_expires_at TEXT NOT NULL DEFAULT '',otp_purpose TEXT NOT NULL DEFAULT '',
+    otp_attempts INTEGER NOT NULL DEFAULT 0,otp_last_sent_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  const existing=await db.execute('SELECT id FROM admin_accounts ORDER BY id LIMIT 1');
+  if(!existing.rows.length){
+    if(!ADMIN_EMAIL||!ADMIN_PASSWORD) throw new Error('Initial admin account requires ADMIN_EMAIL and ADMIN_PASSWORD');
+    await db.execute({sql:`INSERT INTO admin_accounts(email,password_hash,recovery_email_1,recovery_email_2) VALUES(?,?,?,?)`,
+      args:[ADMIN_EMAIL.trim().toLowerCase(),await bcrypt.hash(ADMIN_PASSWORD,12),ADMIN_RECOVERY_EMAIL.trim().toLowerCase(),ADMIN_RECOVERY_EMAIL_2.trim().toLowerCase()]});
+  }else{
+    await db.execute({sql:`UPDATE admin_accounts SET email=COALESCE(NULLIF(?,''),email),
+      recovery_email_1=COALESCE(NULLIF(?,''),recovery_email_1),
+      recovery_email_2=COALESCE(NULLIF(?,''),recovery_email_2),updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      args:[ADMIN_EMAIL.trim().toLowerCase(),ADMIN_RECOVERY_EMAIL.trim().toLowerCase(),ADMIN_RECOVERY_EMAIL_2.trim().toLowerCase(),Number(existing.rows[0].id)]});
+  }
+}
+function normalizeName(value){return String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
+async function resolveLegacyBrandProductIds(){
+  const products=await db.execute('SELECT id,name,category FROM products ORDER BY sort_order,id');
+  const byName=new Map(),byCategory=new Map();
+  for(const p of products.rows){byName.set(normalizeName(p.name),Number(p.id));byCategory.set(normalizeName(p.category),Number(p.id));}
+  const brands=await db.execute('SELECT id,category FROM brands WHERE product_id IS NULL OR product_id=0');
+  const rules=[
+    [['tmt bars','tmt steel'],['tmt steel','tmt bars']],
+    [['cement'],['cement']],
+    [['roofing solution','roofing sheets','roofing'],['roofing sheets']],
+    [['bricks','masonry'],['bricks']],
+    [['pipes','pipes steel products'],['pipes steel products','round pipes','square pipes']],
+    [['structurals','structural steel'],['structural steel']]
+  ];
+  for(const b of brands.rows){
+    const c=normalizeName(b.category); let productId=byName.get(c)||byCategory.get(c);
+    if(!productId) for(const [needles,names] of rules){
+      if(needles.some(n=>c.includes(n))){for(const n of names){if(byName.has(n)){productId=byName.get(n);break;}}}
+      if(productId)break;
+    }
+    if(productId) await db.execute({sql:'UPDATE brands SET product_id=? WHERE id=?',args:[productId,Number(b.id)]});
+  }
+}
+function parseCookies(req){
+  const out={}; for(const part of String(req.headers.cookie||'').split(';')){const i=part.indexOf('=');if(i>-1)out[part.slice(0,i).trim()]=decodeURIComponent(part.slice(i+1));} return out;
+}
+async function readRaw(req,limit=8*1024*1024){
+  return new Promise((resolve,reject)=>{const chunks=[];let size=0;req.on('data',c=>{size+=c.length;if(size>limit){req.destroy();reject(new Error('Request too large'));return;}chunks.push(c);});req.on('end',()=>resolve(Buffer.concat(chunks)));req.on('error',reject);});
+}
+function parseMultipart(buffer,contentType){
+  const match=/boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType||''); if(!match)throw new Error('Missing multipart boundary');
+  const boundary=Buffer.from('--'+(match[1]||match[2])),fields={},files=[];let start=0;
+  while(true){const idx=buffer.indexOf(boundary,start);if(idx===-1)break;let ps=idx+boundary.length;if(buffer.slice(ps,ps+2).toString()==='--')break;if(buffer.slice(ps,ps+2).toString()==='\r\n')ps+=2;
+    const he=buffer.indexOf(Buffer.from('\r\n\r\n'),ps);if(he===-1)break;const headers=buffer.slice(ps,he).toString('utf8');const ds=he+4;const nb=buffer.indexOf(boundary,ds);if(nb===-1)break;let de=nb;if(buffer.slice(de-2,de).toString()==='\r\n')de-=2;
+    const disp=/Content-Disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/i.exec(headers);const type=/Content-Type:\s*([^\r\n]+)/i.exec(headers);
+    if(disp){if(disp[2]!==undefined&&disp[2]!=='')files.push({field:disp[1],filename:path.basename(disp[2]),contentType:type?type[1].trim().toLowerCase():'application/octet-stream',data:buffer.slice(ds,de)});else fields[disp[1]]=buffer.slice(ds,de).toString('utf8');}start=nb;}
+  return {fields,files};
+}
+function safeFilename(name){return String(name||'upload').toLowerCase().replace(/[^a-z0-9._-]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'')||'upload';}
+async function saveUploadedImage(file,folder,prefix){
+  if(!file)return '';const allowed=new Map([['image/jpeg','.jpg'],['image/png','.png'],['image/webp','.webp'],['image/gif','.gif']]);const ext=allowed.get(file.contentType);
+  if(!ext)throw new Error('Only JPG, PNG, WEBP or GIF images are allowed');if(file.data.length>5*1024*1024)throw new Error('Image must be 5 MB or smaller');
+  const dir=path.join(PUBLIC,'assets',folder);fs.mkdirSync(dir,{recursive:true});const filename=`${Date.now()}-${safeFilename(prefix)}${ext}`;fs.writeFileSync(path.join(dir,filename),file.data);return `/assets/${folder}/${filename}`;
+}
+function safeEqual(a,b){const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||''));return aa.length===bb.length&&crypto.timingSafeEqual(aa,bb);}
+async function sendOtpEmail(to,code){
+  const host=process.env.SMTP_HOST,user=process.env.SMTP_USER,pass=process.env.SMTP_PASSWORD;
+  if(!host||!user||!pass)return false;
+  const nodemailer=require('nodemailer');
+  const transport=nodemailer.createTransport({host,port:Number(process.env.SMTP_PORT||465),secure:Number(process.env.SMTP_PORT||465)===465,auth:{user,pass}});
+  await transport.sendMail({from:process.env.SMTP_FROM||user,to,subject:'Shree Steel Admin Verification Code',text:`Your Shree Steel Admin verification code is ${code}.\n\nThis 6-digit code expires in 10 minutes and can be used only once. If you did not request this code, ignore this email.`});
+  return true;
+}
+function createAdminSession(res,email,recoveryVerified=false){
+  const cookie=crypto.randomBytes(32).toString('hex');
+  sessions.add(cookie);
+  if(recoveryVerified) recoverySessions.add(cookie);
+  const recoveryCookie=recoveryVerified
+    ? `ss_admin_recovery=1; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400${process.env.NODE_ENV==='production'?'; Secure':''}`
+    : `ss_admin_recovery=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+  return send(res,200,{ok:true,email,recovery_verified:!!recoveryVerified},{
+    'Set-Cookie':[
+      `ss_admin=${cookie}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400${process.env.NODE_ENV==='production'?'; Secure':''}`,
+      recoveryCookie
+    ]
+  });
+}
+
+async function ensureProductQuoteConfiguration(){
+  const configs={
+    'TMT Steel':{unit:'KG',options:[['Diameter','8 mm'],['Diameter','10 mm'],['Diameter','12 mm'],['Diameter','16 mm'],['Diameter','20 mm'],['Diameter','25 mm'],['Diameter','32 mm']]},
+    'Cement':{unit:'BAGS',options:[['Grade','43 Grade'],['Grade','53 Grade'],['Type','OPC'],['Type','PPC'],['Type','PSC']]},
+    'Roofing Sheets':{unit:'PCS',options:[['Thickness','5.5 mm'],['Thickness','6 mm'],['Length','8 ft'],['Length','10 ft'],['Length','12 ft']]},
+    'Structural Steel':{unit:'KG',options:[['Section','Angle'],['Section','Channel'],['Section','Beam'],['Section','Plate']]},
+    'Bricks':{unit:'PCS',options:[['Type','Red Brick'],['Type','Fly Ash Brick']]},
+    'Pipes & Steel Products':{unit:'PCS',options:[['Type','Round Pipe'],['Type','Square Pipe'],['Type','Rectangular Pipe']]}
+  };
+  for(const [name,cfg] of Object.entries(configs)){
+    const p=await db.execute({sql:'SELECT id FROM products WHERE name=? LIMIT 1',args:[name]});
+    if(!p.rows.length) continue;
+    const pid=Number(p.rows[0].id);
+    await db.execute({sql:"UPDATE products SET default_unit=COALESCE(NULLIF(default_unit,''),?) WHERE id=?",args:[cfg.unit,pid]});
+
+    // Product specifications are independent of brands and brand varieties.
+    // Remove legacy/incorrect "Variant: ..." values that were previously
+    // leaking brand varieties into the product specification dropdown.
+    await db.execute({
+      sql:`DELETE FROM product_options
+           WHERE product_id=?
+             AND lower(trim(option_value)) LIKE 'variant:%'`,
+      args:[pid]
+    });
+
+    const existingRows=await db.execute({
+      sql:'SELECT option_name,option_value FROM product_options WHERE product_id=? AND available=1 ORDER BY sort_order,id',
+      args:[pid]
+    });
+    const existingValues=new Set(existingRows.rows.map(r=>String(r.option_value||'').trim().toLowerCase()));
+
+    // Add official product specifications that are missing, without
+    // overwriting administrator-created specifications.
+    let nextOrder=existingRows.rows.length+1;
+    for(const [optionName,optionValue] of cfg.options){
+      if(!existingValues.has(optionValue.toLowerCase())){
+        await db.execute({
+          sql:'INSERT OR IGNORE INTO product_options(product_id,option_name,option_value,sort_order,available) VALUES(?,?,?,?,1)',
+          args:[pid,optionName,optionValue,nextOrder++]
+        });
+      }
+    }
+  }
+}
+
+async function saveProductQuoteConfiguration(productId,unit,rawOptions){
+  const allowedUnits=new Set(['PCS','BAGS','KG','TON','MTR','SQFT','SQM','LTR']);
+  const rawUnit=String(unit||'').trim();
+  const normalizedUnit=rawUnit.toUpperCase();
+  const defaultUnit=rawUnit
+    ? (allowedUnits.has(normalizedUnit)?normalizedUnit:rawUnit.slice(0,20))
+    : 'PCS';
+  let options=[];
+  try{options=Array.isArray(rawOptions)?rawOptions:JSON.parse(String(rawOptions||'[]'))}catch{throw new Error('Invalid product specifications data')}
+  options=options.map((o,i)=>({name:String(o?.name||'Specification').trim()||'Specification',value:String(o?.value||'').trim(),sort_order:i+1})).filter(o=>o.value);
+  await db.execute({sql:'UPDATE products SET default_unit=? WHERE id=?',args:[defaultUnit,productId]});
+  await db.execute({sql:'DELETE FROM product_options WHERE product_id=?',args:[productId]});
+  for(const o of options) await db.execute({sql:'INSERT INTO product_options(product_id,option_name,option_value,sort_order,available) VALUES(?,?,?,?,1)',args:[productId,o.name,o.value,o.sort_order]});
+}
 
 async function initializeDatabase() {
   await db.batch([
@@ -71,6 +248,36 @@ async function initializeDatabase() {
       )`
     },
     {
+      sql: `CREATE TABLE IF NOT EXISTS brand_varieties(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        brand_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        product_image TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        visible INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS product_options(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        option_name TEXT NOT NULL DEFAULT 'Specification',
+        option_value TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        available INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(product_id, option_value)
+      )`
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS product_units(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    },
+    {
       sql: `CREATE TABLE IF NOT EXISTS enquiries(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -82,6 +289,47 @@ async function initializeDatabase() {
       )`
     }
   ]);
+
+  const standardUnits=['PCS','BAGS','KG','TON','MTR','SQFT','SQM','LTR'];
+  for(const unit of standardUnits){
+    await db.execute({sql:'INSERT OR IGNORE INTO product_units(name,sort_order) VALUES(?,?)',args:[unit,standardUnits.indexOf(unit)+1]});
+  }
+  const existingProductUnits=await db.execute(`SELECT DISTINCT TRIM(default_unit) AS unit FROM products WHERE TRIM(COALESCE(default_unit,''))<>''`);
+  for(const row of existingProductUnits.rows){
+    const unit=String(row.unit||'').trim();
+    if(unit) await db.execute({sql:'INSERT OR IGNORE INTO product_units(name,sort_order) VALUES(?,?)',args:[unit,1000]});
+  }
+
+  await ensureColumn('products','visible','INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn('products','default_unit',"TEXT NOT NULL DEFAULT 'PCS'");
+  await ensureColumn('brands','product_id','INTEGER');
+  await ensureColumn('brands','variety',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('brands','product_image',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('brands','visible','INTEGER NOT NULL DEFAULT 1');
+
+  // Migrate the old single-variety fields into the proper one-to-many model.
+  const legacyVarieties = await db.execute(`
+    SELECT b.id,b.name,b.variety,b.product_image
+    FROM brands b
+    WHERE TRIM(COALESCE(b.variety,''))<>'' OR TRIM(COALESCE(b.product_image,''))<>''
+  `);
+  for (const row of legacyVarieties.rows) {
+    const existing = await db.execute({sql:'SELECT id FROM brand_varieties WHERE brand_id=? LIMIT 1',args:[Number(row.id)]});
+    if (!existing.rows.length && String(row.variety||'').trim()) {
+      await db.execute({
+        sql:'INSERT INTO brand_varieties(brand_id,name,product_image,sort_order,visible) VALUES(?,?,?,?,1)',
+        args:[Number(row.id),String(row.variety).trim(),String(row.product_image||''),0]
+      });
+    }
+  }
+
+  await ensureColumn('admin_accounts','otp_challenge_hash',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('admin_accounts','otp_code_hash',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('admin_accounts','otp_expires_at',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('admin_accounts','otp_purpose',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('admin_accounts','otp_attempts','INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn('admin_accounts','otp_last_sent_at',"TEXT NOT NULL DEFAULT ''");
+  await ensureAdminAccount();
 
   const officialBrands = [
     ['Bangur Cement','CEMENT','Cement products','#d51f28','/assets/brands/bangur-cement.jpeg',1],
@@ -102,57 +350,116 @@ async function initializeDatabase() {
 
     if (existing.rows.length) {
       await db.execute({
-        sql: 'UPDATE brands SET category=?,description=?,accent=?,logo=?,sort_order=? WHERE name=?',
-        args: [x[1], x[2], x[3], x[4], x[5], x[0]]
+        sql: 'UPDATE brands SET category=?,description=?,accent=?,logo=? WHERE name=?',
+        args: [x[1], x[2], x[3], x[4], x[0]]
       });
     } else {
+      const next = await appendPriority('brands');
       await db.execute({
         sql: 'INSERT INTO brands(name,category,description,accent,logo,sort_order) VALUES(?,?,?,?,?,?)',
-        args: x
+        args: [x[0],x[1],x[2],x[3],x[4],next]
       });
     }
+  }
+
+  // Preserve the existing TMT record instead of creating a duplicate.
+  const tmtSteel=await db.execute("SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1");
+  const tmtBars=await db.execute("SELECT id FROM products WHERE lower(name)='tmt bars' LIMIT 1");
+  if(!tmtSteel.rows.length && tmtBars.rows.length){
+    await db.execute({sql:"UPDATE products SET name='TMT Steel',category='TMT STEEL' WHERE id=?",args:[Number(tmtBars.rows[0].id)]});
   }
 
   const coreProducts = [
-    ['TMT Bars','Steel','MSP, GK TMT, Jindal Panther','Reinforcement steel for strong, durable RCC construction.',1,1],
-    ['Cement','Cement','Bangur Cement, Jindal Cement','Trusted cement solutions for foundations, slabs, columns and general construction.',1,2],
-    ['Roofing Sheets','Roofing','Everest, HIL / BirlaNu','Roofing options for residential, commercial, agricultural and industrial applications.',1,3],
-    ['Structural Steel','Steel','MSP, Jindal Steel & Power','Beams, channels, angles and structural steel for fabrication and construction requirements.',1,4],
-    ['Bricks','Masonry','Jindal Bricks','Construction bricks for walls, foundations and building work.',1,5],
-    ['Pipes & Steel Products','Steel','MSP','Steel pipes and related steel products for construction and industrial requirements.',1,6]
+    ['TMT Steel','TMT STEEL','','Premium TMT reinforcement steel for residential, commercial and project construction.',1,1,'KG'],
+    ['Cement','CEMENT','','Trusted cement solutions for foundations, slabs, columns and general construction.',1,2,'BAGS'],
+    ['Roofing Sheets','ROOFING','','Roofing options for residential, commercial, agricultural and industrial applications.',1,3,'PCS'],
+    ['Structural Steel','STRUCTURAL STEEL','','Beams, channels, angles and structural steel for fabrication and construction requirements.',1,4,'PCS'],
+    ['Bricks','MASONRY','','Construction bricks for walls, foundations and building work.',1,5,'PCS'],
+    ['Pipes & Steel Products','STEEL','','Steel pipes and related steel products for construction and industrial requirements.',1,6,'PCS']
   ];
-
-  for (const x of coreProducts) {
-    const existing = await db.execute({
-      sql: 'SELECT id FROM products WHERE name=?',
-      args: [x[0]]
-    });
-
-    if (existing.rows.length) {
-  await db.execute({
-    sql: `
-      UPDATE products
-      SET category=?,
-          brands=?,
-          description=?,
-          sort_order=?
-      WHERE name=?
-    `,
-    args: [
-      x[1],
-      x[2],
-      x[3],
-      x[5],
-      x[0]
-    ]
-  });
-} else {
-      await db.execute({
-        sql: 'INSERT INTO products(name,category,brands,description,available,sort_order) VALUES(?,?,?,?,?,?)',
-        args: x
-      });
-    }
+  for(const x of coreProducts){
+    const existing=await db.execute({sql:'SELECT id FROM products WHERE name=?',args:[x[0]]});
+    if(existing.rows.length) await db.execute({sql:`UPDATE products SET description=?,available=?,visible=COALESCE(visible,1),default_unit=COALESCE(NULLIF(default_unit,''),?) WHERE name=?`,args:[x[3],x[4],x[6],x[0]]});
+    else { const next=await appendPriority('products'); await db.execute({sql:`INSERT INTO products(name,category,brands,description,available,sort_order,visible,default_unit) VALUES(?,?,?,?,?,?,?,?)`,args:[x[0],x[1],x[2],x[3],x[4],next,1,x[6]]}); }
   }
+  await ensureProductQuoteConfiguration();
+  await resolveLegacyBrandProductIds();
+  await normalizePriorities('products');
+  await normalizePriorities('brands');
+  const brandRowsForNormalization = await db.execute('SELECT id FROM brands ORDER BY id');
+  for (const row of brandRowsForNormalization.rows) await normalizePriorities('brand_varieties','brand_id=?',[Number(row.id)]);
+
+}
+
+
+async function normalizePriorities(table, whereSql='', whereArgs=[]) {
+  const rows = await db.execute({
+    sql: `SELECT id FROM ${table}${whereSql ? ` WHERE ${whereSql}` : ''} ORDER BY sort_order,id`,
+    args: whereArgs
+  });
+  for (let i = 0; i < rows.rows.length; i++) {
+    await db.execute({sql:`UPDATE ${table} SET sort_order=? WHERE id=?`,args:[i+1,Number(rows.rows[i].id)]});
+  }
+}
+
+async function appendPriority(table, whereSql='', whereArgs=[]) {
+  const r = await db.execute({
+    sql: `SELECT COALESCE(MAX(sort_order),0) AS max_order FROM ${table}${whereSql ? ` WHERE ${whereSql}` : ''}`,
+    args: whereArgs
+  });
+  return Number(r.rows[0]?.max_order || 0) + 1;
+}
+
+async function movePriority(table, id, requested, whereSql='', whereArgs=[]) {
+  const currentR = await db.execute({
+    sql: `SELECT sort_order FROM ${table} WHERE id=?${whereSql ? ` AND ${whereSql}` : ''} LIMIT 1`,
+    args: [id, ...whereArgs]
+  });
+  if (!currentR.rows.length) throw new Error('Item not found');
+  const current = Number(currentR.rows[0].sort_order) || 1;
+  const countR = await db.execute({
+    sql: `SELECT COUNT(*) AS count FROM ${table}${whereSql ? ` WHERE ${whereSql}` : ''}`,
+    args: whereArgs
+  });
+  const count = Number(countR.rows[0]?.count || 0);
+  const target = Math.max(1, Math.min(Number(requested) || current, count));
+  if (target === current) return current;
+
+  // Temporarily move the selected item out of the active range so there is no collision.
+  await db.execute({sql:`UPDATE ${table} SET sort_order=0 WHERE id=?`,args:[id]});
+  if (current < target) {
+    await db.execute({
+      sql:`UPDATE ${table} SET sort_order=sort_order-1 WHERE sort_order>? AND sort_order<=?${whereSql ? ` AND ${whereSql}` : ''}`,
+      args:[current,target,...whereArgs]
+    });
+  } else {
+    await db.execute({
+      sql:`UPDATE ${table} SET sort_order=sort_order+1 WHERE sort_order>=? AND sort_order<?${whereSql ? ` AND ${whereSql}` : ''}`,
+      args:[target,current,...whereArgs]
+    });
+  }
+  await db.execute({sql:`UPDATE ${table} SET sort_order=? WHERE id=?`,args:[target,id]});
+  return target;
+}
+
+async function saveBrandVarieties(brandId,brandName,rawVarieties,files){
+  let varieties=[];
+  try{varieties=Array.isArray(rawVarieties)?rawVarieties:JSON.parse(String(rawVarieties||'[]'))}catch{throw new Error('Invalid brand varieties data')}
+  varieties=varieties.map((v,i)=>({
+    name:String(v?.name||'').trim(),
+    product_image:String(v?.product_image||'').trim(),
+    sort_order:Math.max(1,Number(v?.sort_order)||i+1),
+    file_index:Number.isInteger(Number(v?.fileIndex))?Number(v.fileIndex):null
+  })).filter(v=>v.name);
+  for(let i=0;i<varieties.length;i++){
+    const f=varieties[i].file_index===null?null:files.find(x=>x.field===`variety_image_${varieties[i].file_index}`);
+    if(f)varieties[i].product_image=await saveUploadedImage(f,'products',`${brandName}-${varieties[i].name}`);
+  }
+  await db.execute({sql:'DELETE FROM brand_varieties WHERE brand_id=?',args:[brandId]});
+  for(const v of varieties){
+    await db.execute({sql:'INSERT INTO brand_varieties(brand_id,name,product_image,sort_order,visible) VALUES(?,?,?,?,1)',args:[brandId,v.name,v.product_image,v.sort_order]});
+  }
+  await normalizePriorities('brand_varieties','brand_id=?',[brandId]);
 }
 
 function send(res, status, obj, headers = {}) {
@@ -198,16 +505,15 @@ function sig(v) {
 }
 
 function admin(req) {
-  const c = req.headers.cookie || '';
-  const x = c
-    .split(';')
-    .map(s => s.trim())
-    .find(s => s.startsWith('ss_admin='));
+  const token=parseCookies(req).ss_admin;
+  return !!token && sessions.has(token);
+}
 
-  if (!x) return false;
-
-  const token = decodeURIComponent(x.slice(9));
-  return sessions.has(token);
+function recoveryAdmin(req) {
+  const cookies=parseCookies(req);
+  const token=cookies.ss_admin;
+  return !!token && sessions.has(token) &&
+    (recoverySessions.has(token) || cookies.ss_admin_recovery === '1');
 }
 
 function need(req, res) {
@@ -258,22 +564,27 @@ async function startServer() {
       const p = u.pathname;
 
       if (req.method === 'GET' && p === '/api/products') {
-        const r = await db.execute(
-          'SELECT * FROM products ORDER BY sort_order,id'
-        );
-
-        return send(res, 200, r.rows);
+        const r=await db.execute(`SELECT p.*,(SELECT COUNT(*) FROM brands b WHERE b.product_id=p.id AND COALESCE(b.visible,1)=1) AS brand_count FROM products p ORDER BY p.sort_order,p.id`);
+        const rows=[];
+        for(const p of r.rows){
+          const o=await db.execute({sql:'SELECT id,option_name,option_value,sort_order,available FROM product_options WHERE product_id=? AND available=1 ORDER BY sort_order,id',args:[Number(p.id)]});
+          rows.push({...p,options:o.rows.map(x=>({id:Number(x.id),name:x.option_name,value:x.option_value,sort_order:Number(x.sort_order)||0}))});
+        }
+        return send(res,200,rows);
       }
-
       if (req.method === 'GET' && p === '/api/brands') {
-        const r = await db.execute(
-          'SELECT * FROM brands ORDER BY sort_order,id'
-        );
-
-        return send(res, 200, r.rows);
+        const r=await db.execute(`SELECT b.*,p.name AS product_name FROM brands b LEFT JOIN products p ON p.id=b.product_id WHERE COALESCE(b.visible,1)=1 ORDER BY COALESCE(p.sort_order,999999),p.id,b.id`);
+        const rows=[];
+        for(const b of r.rows){
+          const vr=await db.execute({sql:`SELECT id,name,product_image,sort_order,visible FROM brand_varieties WHERE brand_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id`,args:[Number(b.id)]});
+          rows.push({...b,varieties:vr.rows.map(v=>({id:Number(v.id),name:v.name,product_image:v.product_image||'',sort_order:Number(v.sort_order)||0,visible:Number(v.visible)!==0}))});
+        }
+        return send(res,200,rows);
       }
 
       if (req.method === 'GET' && p === '/api/quote-data') {
+        // quote-data product option cleanup: brand varieties are never specifications.
+        await db.execute(`DELETE FROM product_options WHERE lower(trim(option_value)) LIKE 'variant:%'`);
         const productRows = await db.execute({
           sql: `
             SELECT id, name, category, description, default_unit
@@ -288,11 +599,10 @@ async function startServer() {
         for (const product of productRows.rows) {
           const brandRows = await db.execute({
             sql: `
-              SELECT b.id, b.name
-              FROM product_brands pb
-              JOIN brands b ON b.id=pb.brand_id
-              WHERE pb.product_id=? AND b.visible=1
-              ORDER BY b.sort_order,b.id
+              SELECT b.id,b.name,b.variety,b.logo,b.product_image
+              FROM brands b
+              WHERE b.product_id=? AND COALESCE(b.visible,1)=1
+              ORDER BY b.id
             `,
             args: [Number(product.id)]
           });
@@ -313,9 +623,9 @@ async function startServer() {
             category: product.category,
             description: product.description,
             unit: product.default_unit,
-            brands: brandRows.rows.map(b => ({
-              id: Number(b.id),
-              name: b.name
+            brands: await Promise.all(brandRows.rows.map(async b => {
+              const vr=await db.execute({sql:`SELECT id,name,product_image,sort_order,visible FROM brand_varieties WHERE brand_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id`,args:[Number(b.id)]});
+              return {id:Number(b.id),name:b.name,variety:b.variety||'',logo:b.logo||'',product_image:b.product_image||'',varieties:vr.rows.map(v=>({id:Number(v.id),name:v.name,product_image:v.product_image||'',sort_order:Number(v.sort_order)||0,visible:Number(v.visible)!==0}))};
             })),
             options: optionRows.rows.map(o => ({
               id: Number(o.id),
@@ -503,9 +813,7 @@ async function startServer() {
           if (brandId !== null) {
             const relationship = await db.execute({
               sql: `
-                SELECT 1
-                FROM product_brands
-                WHERE product_id=? AND brand_id=?
+                SELECT 1 FROM brands WHERE product_id=? AND id=? AND COALESCE(visible,1)=1
                 LIMIT 1
               `,
               args: [
@@ -541,32 +849,63 @@ async function startServer() {
           }
 
           // ------------------------------------------------------
-          // Product-specific option
+          // Specification / Brand Variety
           // ------------------------------------------------------
 
           const specification =
             String(item.specification || '').trim();
 
           if (specification) {
-            const option = await db.execute({
-              sql: `
-                SELECT id
-                FROM product_options
-                WHERE product_id=?
-                  AND option_value=?
-                  AND available=1
-                LIMIT 1
-              `,
-              args: [
-                productId,
-                specification
-              ]
-            });
+            const isCement = String(pRow.name || '').trim().toLowerCase() === 'cement';
 
-            if (!option.rows.length) {
-              return send(res, 400, {
-                error: 'Invalid product specification'
+            if (isCement) {
+              if (brandId === null) {
+                return send(res, 400, {
+                  error: 'Please select a cement brand before selecting its variety'
+                });
+              }
+
+              const variety = await db.execute({
+                sql: `
+                  SELECT v.id
+                  FROM brand_varieties v
+                  WHERE v.brand_id=?
+                    AND lower(trim(v.name))=lower(trim(?))
+                    AND COALESCE(v.visible,1)=1
+                  LIMIT 1
+                `,
+                args: [
+                  brandId,
+                  specification
+                ]
               });
+
+              if (!variety.rows.length) {
+                return send(res, 400, {
+                  error: 'Invalid cement brand variety'
+                });
+              }
+            } else {
+              const option = await db.execute({
+                sql: `
+                  SELECT id
+                  FROM product_options
+                  WHERE product_id=?
+                    AND option_value=?
+                    AND available=1
+                  LIMIT 1
+                `,
+                args: [
+                  productId,
+                  specification
+                ]
+              });
+
+              if (!option.rows.length) {
+                return send(res, 400, {
+                  error: 'Invalid product specification'
+                });
+              }
             }
           }
 
@@ -712,58 +1051,89 @@ async function startServer() {
         });
       }
 
-      if (req.method === 'POST' && p === '/api/admin/login') {
-        const x = await body(req);
-
-        if (String(x.password || '') !== ADMIN_PASSWORD) {
-          return send(res, 401, {
-            error: 'Incorrect password'
-          });
-        }
-
-        const cookie = crypto.randomBytes(32).toString('hex');
-        sessions.add(cookie);
-
-        return send(
-          res,
-          200,
-          { ok: true },
-          {
-            'Set-Cookie':
-              `ss_admin=${cookie}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
-          }
-        );
+      if(req.method==='POST'&&p==='/api/admin/login'){
+        const x=await body(req),email=String(x.email||'').trim().toLowerCase(),password=String(x.password||'');
+        const r=await db.execute({sql:'SELECT id,email,password_hash FROM admin_accounts WHERE lower(email)=? LIMIT 1',args:[email]});
+        if(!r.rows.length||!(await bcrypt.compare(password,r.rows[0].password_hash)))return send(res,401,{error:'Incorrect email or password'});
+        return createAdminSession(res,r.rows[0].email);
       }
 
-      if (req.method === 'POST' && p === '/api/admin/logout') {
-        const c = req.headers.cookie || '';
-
-        const m = c
-          .split(';')
-          .map(s => s.trim())
-          .find(s => s.startsWith('ss_admin='));
-
-        if (m) {
-          sessions.delete(
-            decodeURIComponent(m.slice(9))
-          );
-        }
-
-        return send(
-          res,
-          200,
-          { ok: true },
-          {
-            'Set-Cookie':
-              'ss_admin=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'
-          }
-        );
+      if(req.method==='POST'&&p==='/api/admin/logout'){
+        const token=parseCookies(req).ss_admin;
+        if(token){sessions.delete(token);recoverySessions.delete(token);}
+        return send(res,200,{ok:true},{'Set-Cookie':[
+          'ss_admin=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
+          'ss_admin_recovery=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'
+        ]});
       }
 
-      if (req.method === 'GET' && p === '/api/admin/me') {
-        return send(res, 200, {
-          authenticated: admin(req)
-        });
+      if(req.method==='GET'&&p==='/api/admin/me'){
+        if(!admin(req))return send(res,200,{authenticated:false});
+        const r=await db.execute('SELECT email,recovery_email_1,recovery_email_2 FROM admin_accounts ORDER BY id LIMIT 1'),a=r.rows[0]||{};
+        return send(res,200,{authenticated:true,email:a.email||'',recovery_email_1:a.recovery_email_1||'',recovery_email_2:a.recovery_email_2||'',recovery_verified:recoveryAdmin(req)});
+      }
+
+      if(req.method==='POST'&&p==='/api/admin/otp/request'){
+        const x=await body(req),mode=String(x.mode||'').trim(),identifier=String(x.identifier||'').trim().toLowerCase();
+        if(!['admin_email','recovery_email'].includes(mode)||!identifier)return send(res,400,{error:'Choose a recovery method and enter the email address'});
+        let sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts WHERE lower(email)=? LIMIT 1';
+        let args=[identifier];
+        if(mode==='recovery_email'){
+          sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts WHERE lower(recovery_email_1)=? OR lower(recovery_email_2)=? LIMIT 1';
+          args=[identifier,identifier];
+        }
+        const r=await db.execute({sql,args});
+        if(!r.rows.length)return send(res,200,{ok:true,message:'If the account details are correct, a 6-digit verification code has been sent.'});
+        const a=r.rows[0];
+        if(a.otp_last_sent_at&&Date.now()-new Date(a.otp_last_sent_at).getTime()<60000)return send(res,429,{error:'Please wait 60 seconds before requesting another code.'});
+        const destination=mode==='admin_email'?String(a.email||'').toLowerCase():identifier;
+        const challenge=crypto.randomBytes(24).toString('hex'),code=String(crypto.randomInt(100000,1000000));
+        await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash=?,otp_code_hash=?,otp_expires_at=?,otp_purpose=?,otp_attempts=0,otp_last_sent_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[sig(challenge),sig(`${challenge}:${code}`),new Date(Date.now()+10*60*1000).toISOString(),mode,new Date().toISOString(),Number(a.id)]});
+        let delivered=false;try{delivered=await sendOtpEmail(destination,code)}catch(e){console.error('OTP email failed:',e.message)}
+        if(!delivered){
+          if(process.env.NODE_ENV==='production'){
+            await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash='',otp_code_hash='',otp_expires_at='',otp_purpose='',otp_attempts=0 WHERE id=?`,args:[Number(a.id)]});
+            return send(res,503,{error:'Verification email is not configured. Please configure SMTP before using account recovery.'});
+          }
+          console.log(`LOCAL ADMIN OTP for ${destination}: ${code}`);
+        }
+        const masked=destination.replace(/(^.).*(@.*$)/,'$1***$2');
+        return send(res,200,{ok:true,challenge,message:`A 6-digit verification code has been sent to ${masked}. It expires in 10 minutes.`});
+      }
+
+      if(req.method==='POST'&&p==='/api/admin/otp/verify'){
+        const x=await body(req),challenge=String(x.challenge||'').trim(),code=String(x.code||'').replace(/\D/g,'');
+        if(!challenge||!/^[0-9]{6}$/.test(code))return send(res,400,{error:'Enter the 6-digit verification code'});
+        const r=await db.execute({sql:`SELECT id,email,otp_code_hash,otp_expires_at,otp_attempts FROM admin_accounts WHERE otp_challenge_hash=? LIMIT 1`,args:[sig(challenge)]});
+        if(!r.rows.length)return send(res,400,{error:'Verification code is invalid or expired'});
+        const a=r.rows[0];
+        if(Number(a.otp_attempts||0)>=5)return send(res,429,{error:'Too many incorrect attempts. Request a new verification code.'});
+        if(!a.otp_expires_at||new Date(a.otp_expires_at).getTime()<=Date.now())return send(res,400,{error:'Verification code has expired. Request a new code.'});
+        if(!safeEqual(a.otp_code_hash,sig(`${challenge}:${code}`))){
+          await db.execute({sql:'UPDATE admin_accounts SET otp_attempts=otp_attempts+1 WHERE id=?',args:[Number(a.id)]});
+          return send(res,401,{error:'Incorrect verification code'});
+        }
+        await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash='',otp_code_hash='',otp_expires_at='',otp_purpose='',otp_attempts=0,otp_last_sent_at='',updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[Number(a.id)]});
+        return createAdminSession(res,a.email,true);
+      }
+
+      if(req.method==='GET'&&p==='/api/admin/settings'){
+        if(!need(req,res))return;const r=await db.execute('SELECT email,recovery_email_1,recovery_email_2 FROM admin_accounts ORDER BY id LIMIT 1');const row=r.rows[0]||{};row.recovery_verified=recoveryAdmin(req);return send(res,200,row);
+      }
+      if(req.method==='PATCH'&&p==='/api/admin/settings'){
+        if(!need(req,res))return;
+        const x=await body(req),r=await db.execute('SELECT id,password_hash FROM admin_accounts ORDER BY id LIMIT 1'),a=r.rows[0],np=String(x.new_password||'');
+        const recovered=recoveryAdmin(req);
+        if(np){
+          if(np.length<8)return send(res,400,{error:'New password must be at least 8 characters'});
+          if(!recovered && !(await bcrypt.compare(String(x.current_password||''),a.password_hash)))return send(res,401,{error:'Current password is incorrect'});
+        }
+        await db.execute({sql:`UPDATE admin_accounts SET email=?,recovery_email_1=?,recovery_email_2=?,password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[String(x.email||'').trim().toLowerCase(),String(x.recovery_email_1||'').trim().toLowerCase(),String(x.recovery_email_2||'').trim().toLowerCase(),np?await bcrypt.hash(np,12):a.password_hash,Number(a.id)]});
+        // Keep the verified recovery state for this authenticated admin
+        // session. The state is cleared only by explicit logout, so a user
+        // who entered through OTP recovery is not asked for the old password
+        // again during the same recovery session.
+        return send(res,200,{ok:true,password_changed:!!np,recovery_verified:recovered});
       }
 
       if (p.startsWith('/api/admin/')) {
@@ -772,6 +1142,21 @@ async function startServer() {
         const parts = p.split('/').filter(Boolean);
         const type = parts[2];
         const id = parts[3] ? Number(parts[3]) : null;
+
+        if(req.method==='GET' && type==='product-units'){
+          const r=await db.execute('SELECT id,name FROM product_units ORDER BY sort_order,id');
+          return send(res,200,r.rows.map(x=>({id:Number(x.id),name:String(x.name||'')})));
+        }
+        if(req.method==='POST' && type==='product-units'){
+          const x=await body(req),name=String(x.name||'').trim();
+          if(!name)return send(res,400,{error:'Unit name is required'});
+          if(name.length>20)return send(res,400,{error:'Unit name must be 20 characters or fewer'});
+          const existing=await db.execute({sql:'SELECT id,name FROM product_units WHERE lower(name)=lower(?) LIMIT 1',args:[name]});
+          if(existing.rows.length)return send(res,200,{id:Number(existing.rows[0].id),name:String(existing.rows[0].name)});
+          const next=await db.execute('SELECT COALESCE(MAX(sort_order),0)+1 AS next_order FROM product_units');
+          const r=await db.execute({sql:'INSERT INTO product_units(name,sort_order) VALUES(?,?)',args:[name,Number(next.rows[0]?.next_order)||1]});
+          return send(res,200,{id:Number(r.lastInsertRowid),name});
+        }
 
         if (req.method === 'GET' && type === 'quotes') {
           const quotes = await db.execute(`
@@ -829,6 +1214,23 @@ async function startServer() {
 
           return send(res, 200, result);
         }
+        if (req.method === 'PATCH' && type === 'quotes' && id) {
+          const x=await body(req);
+          const status=String(x.status||'NEW').toUpperCase();
+          if(!['NEW','CONTACTED','QUOTED','CLOSED'].includes(status)) return send(res,400,{error:'Invalid enquiry status'});
+          const exists=await db.execute({sql:'SELECT id FROM quote_enquiries WHERE id=? LIMIT 1',args:[id]});
+          if(!exists.rows.length)return send(res,404,{error:'Enquiry not found'});
+          await db.execute({sql:'UPDATE quote_enquiries SET status=? WHERE id=?',args:[status,id]});
+          return send(res,200,{ok:true});
+        }
+        if (req.method === 'DELETE' && type === 'quotes' && id) {
+          const exists=await db.execute({sql:'SELECT id FROM quote_enquiries WHERE id=? LIMIT 1',args:[id]});
+          if(!exists.rows.length)return send(res,404,{error:'Enquiry not found'});
+          await db.execute({sql:'DELETE FROM quote_items WHERE enquiry_id=?',args:[id]});
+          await db.execute({sql:'DELETE FROM quote_enquiries WHERE id=?',args:[id]});
+          return send(res,200,{ok:true});
+        }
+
         if (req.method === 'GET' && type === 'enquiries') {
           const r = await db.execute(
             'SELECT * FROM enquiries ORDER BY id DESC'
@@ -865,143 +1267,49 @@ async function startServer() {
           return send(res, 200, { ok: true });
         }
 
-        if (
-          req.method === 'POST' &&
-          type === 'products'
-        ) {
-          const x = await body(req);
-
-          if (!x.name || !x.category) {
-            return send(res, 400, {
-              error: 'Name and category are required'
-            });
-          }
-
-          const r = await db.execute({
-            sql: `INSERT INTO products(
-              name,category,brands,description,available,sort_order
-            ) VALUES(?,?,?,?,?,?)`,
-            args: [
-              x.name,
-              x.category,
-              x.brands || '',
-              x.description || '',
-              x.available ? 1 : 0,
-              Number(x.sort_order) || 0
-            ]
-          });
-
-          return send(res, 200, {
-            id: Number(r.lastInsertRowid)
-          });
+        if(req.method==='POST'&&type==='products'){
+          const x=await body(req),name=String(x.name||'').trim();if(!name)return send(res,400,{error:'Product name is required'});
+          const next=await appendPriority('products');
+          const r=await db.execute({sql:`INSERT INTO products(name,category,brands,description,available,sort_order,visible,default_unit) VALUES(?,?,?,?,?,?,?,?)`,args:[name,name.toUpperCase(),'',String(x.description||'').trim(),1,next,1,'PCS']});await saveProductQuoteConfiguration(Number(r.lastInsertRowid),x.default_unit,x.options);return send(res,200,{id:Number(r.lastInsertRowid),sort_order:next});
         }
-
-        if (
-          req.method === 'PUT' &&
-          type === 'products' &&
-          id
-        ) {
-          const x = await body(req);
-
-          await db.execute({
-            sql: `UPDATE products
-                  SET name=?,category=?,brands=?,description=?,available=?,sort_order=?
-                  WHERE id=?`,
-            args: [
-              x.name,
-              x.category,
-              x.brands || '',
-              x.description || '',
-              x.available ? 1 : 0,
-              Number(x.sort_order) || 0,
-              id
-            ]
-          });
-
-          return send(res, 200, { ok: true });
+        if(req.method==='PUT'&&type==='products'&&id){
+          const x=await body(req),name=String(x.name||'').trim();if(!name)return send(res,400,{error:'Product name is required'});
+          const requested=Math.max(1,Number(x.sort_order)||1);
+          await movePriority('products',id,requested);
+          const current=await db.execute({sql:'SELECT sort_order FROM products WHERE id=?',args:[id]});
+          await db.execute({sql:'UPDATE products SET name=?,description=? WHERE id=?',args:[name,String(x.description||'').trim(),id]});
+          await saveProductQuoteConfiguration(id,x.default_unit,x.options);
+          return send(res,200,{ok:true,sort_order:Number(current.rows[0]?.sort_order)||requested});
         }
-
-        if (
-          req.method === 'DELETE' &&
-          type === 'products' &&
-          id
-        ) {
-          await db.execute({
-            sql: 'DELETE FROM products WHERE id=?',
-            args: [id]
-          });
-
-          return send(res, 200, { ok: true });
+        if(req.method==='DELETE'&&type==='products'&&id){
+          const used=await db.execute('SELECT COUNT(*) AS count FROM brands WHERE product_id=?',[id]);if(Number(used.rows[0].count)>0)return send(res,409,{error:'This product has brands assigned to it. Reassign or delete those brands first.'});
+          const existing=await db.execute('SELECT sort_order FROM products WHERE id=?',[id]);
+          await db.execute('DELETE FROM products WHERE id=?',[id]);
+          if(existing.rows.length){ const removed=Number(existing.rows[0].sort_order); await db.execute({sql:'UPDATE products SET sort_order=sort_order-1 WHERE sort_order>?',args:[removed]}); }
+          await normalizePriorities('products');
+          return send(res,200,{ok:true});
         }
-
-        if (
-          req.method === 'POST' &&
-          type === 'brands'
-        ) {
-          const x = await body(req);
-
-          if (!x.name || !x.category) {
-            return send(res, 400, {
-              error: 'Name and category are required'
-            });
-          }
-
-          const r = await db.execute({
-            sql: `INSERT INTO brands(
-              name,category,description,accent,logo,sort_order
-            ) VALUES(?,?,?,?,?,?)`,
-            args: [
-              x.name,
-              x.category,
-              x.description || '',
-              x.accent || '#087fe3',
-              x.logo || '',
-              Number(x.sort_order) || 0
-            ]
-          });
-
-          return send(res, 200, {
-            id: Number(r.lastInsertRowid)
-          });
+        if(req.method==='POST'&&type==='brands'){
+          let x={},files=[];const ct=String(req.headers['content-type']||'');if(ct.toLowerCase().startsWith('multipart/form-data')){const q=parseMultipart(await readRaw(req),ct);x=q.fields;files=q.files}else x=await body(req);
+          const name=String(x.name||'').trim(),productId=Number(x.product_id);if(!name||!Number.isInteger(productId)||productId<=0)return send(res,400,{error:'Brand name and product are required'});
+          const pr=await db.execute('SELECT id FROM products WHERE id=? LIMIT 1',[productId]);if(!pr.rows.length)return send(res,400,{error:'Selected product does not exist'});
+          let logo=String(x.logo||'');const lf=files.find(f=>f.field==='logo');if(lf)logo=await saveUploadedImage(lf,'brands',name);
+          const r=await db.execute({sql:`INSERT INTO brands(name,category,description,accent,logo,sort_order,product_id,variety,product_image,visible) VALUES(?,?,?,?,?,?,?,?,?,?)`,args:[name,'',String(x.description||'').trim(),'#087fe3',logo,0,productId,'','',1]});
+          const brandId=Number(r.lastInsertRowid);
+          await saveBrandVarieties(brandId,name,x.varieties,files);
+          return send(res,200,{id:brandId});
         }
-
-        if (
-          req.method === 'PUT' &&
-          type === 'brands' &&
-          id
-        ) {
-          const x = await body(req);
-
-          await db.execute({
-            sql: `UPDATE brands
-                  SET name=?,category=?,description=?,accent=?,logo=?,sort_order=?
-                  WHERE id=?`,
-            args: [
-              x.name,
-              x.category,
-              x.description || '',
-              x.accent || '#087fe3',
-              x.logo || '',
-              Number(x.sort_order) || 0,
-              id
-            ]
-          });
-
-          return send(res, 200, { ok: true });
+        if(req.method==='PUT'&&type==='brands'&&id){
+          let x={},files=[];const ct=String(req.headers['content-type']||'');if(ct.toLowerCase().startsWith('multipart/form-data')){const q=parseMultipart(await readRaw(req),ct);x=q.fields;files=q.files}else x=await body(req);
+          const name=String(x.name||'').trim(),productId=Number(x.product_id);if(!name||!Number.isInteger(productId)||productId<=0)return send(res,400,{error:'Brand name and product are required'});
+          const pr=await db.execute('SELECT id FROM products WHERE id=? LIMIT 1',[productId]);if(!pr.rows.length)return send(res,400,{error:'Selected product does not exist'});
+          const existing=await db.execute({sql:'SELECT logo FROM brands WHERE id=? LIMIT 1',args:[id]});if(!existing.rows.length)return send(res,404,{error:'Brand not found'});
+          let logo=String(x.logo||existing.rows[0].logo||'');const lf=files.find(f=>f.field==='logo');if(lf)logo=await saveUploadedImage(lf,'brands',name);
+          await db.execute({sql:`UPDATE brands SET name=?,category=?,description=?,accent=?,logo=?,product_id=?,variety='',product_image='',visible=? WHERE id=?`,args:[name,'',String(x.description||'').trim(),'#087fe3',logo,productId,x.visible===undefined?1:(Number(x.visible)?1:0),id]});
+          await saveBrandVarieties(Number(id),name,x.varieties,files);
+          return send(res,200,{ok:true});
         }
-
-        if (
-          req.method === 'DELETE' &&
-          type === 'brands' &&
-          id
-        ) {
-          await db.execute({
-            sql: 'DELETE FROM brands WHERE id=?',
-            args: [id]
-          });
-
-          return send(res, 200, { ok: true });
-        }
+        if(req.method==='DELETE'&&type==='brands'&&id){await db.execute('DELETE FROM brand_varieties WHERE brand_id=?',[id]);await db.execute('DELETE FROM brands WHERE id=?',[id]);return send(res,200,{ok:true});}
 
         return send(res, 404, {
           error: 'Not found'
