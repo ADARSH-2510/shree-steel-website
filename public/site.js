@@ -239,7 +239,7 @@ function addQuoteItem(productName = '') {
     <div class="quote-item-head"><strong>Requirement ${document.querySelectorAll('.quote-item').length + 1}</strong><button type="button" class="quote-remove" onclick="removeQuoteItem('${id}')">Remove</button></div>
     <select class="qi-product" required onchange="renderQuoteItemOptions(this.closest('.quote-item'))"><option value="">Select product</option>${quoteProducts.map(x => `<option value="${x.id}" ${p && x.id === p.id ? 'selected' : ''}>${esc(displayProductName(x.name))}</option>`).join('')}</select>
     <div class="quote-fields">
-      <select class="qi-brand"><option value="">Select brand (optional)</option></select>
+      <select class="qi-brand" onchange="renderQuoteItemOptions(this.closest('.quote-item'))"><option value="">Select brand (optional)</option></select>
       <select class="qi-spec"><option value="">Select specification (optional)</option></select>
       <div class="quote-qty"><input class="qi-quantity" type="number" min="0.01" step="0.01" placeholder="Quantity" required><span class="qi-unit">Unit</span></div>
     </div>`;
@@ -257,11 +257,17 @@ function renderQuoteItemOptions(item) {
   const brand = item.querySelector('.qi-brand');
   const spec = item.querySelector('.qi-spec');
   const unit = item.querySelector('.qi-unit');
+  const selectedBrandId = Number(brand.value);
+  const selectedBrand = (p?.brands || []).find(b => Number(b.id) === selectedBrandId);
   brand.innerHTML = `<option value="">Select brand (optional)</option>` + (p?.brands || []).map(b => `<option value="${b.id}">${esc(displayBrandName(b.name, p.name))}</option>`).join('');
-  spec.innerHTML = `<option value="">Select specification (optional)</option>` + (p?.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.name)}: ${esc(o.value)}</option>`).join('');
+  brand.value = selectedBrandId || '';
+  const isCement = normalizeName(p?.name || '') === 'cement';
+  const options = isCement
+    ? (Array.isArray(selectedBrand?.varieties) ? selectedBrand.varieties : []).map(v => ({ name: 'Variant', value: v.name }))
+    : (p?.options || []);
+  spec.innerHTML = `<option value="">Select specification (optional)</option>` + options.map(o => `<option value="${esc(o.value)}">${esc(o.name)}: ${esc(o.value)}</option>`).join('');
   unit.textContent = p?.unit || 'Unit';
-}
-function renderQuoteItems() {
+}function renderQuoteItems() {
   document.querySelectorAll('.quote-item').forEach((item, i) => {
     const h = item.querySelector('.quote-item-head strong');
     if (h) h.textContent = `Requirement ${i + 1}`;
@@ -752,7 +758,3 @@ load();
   start();
 
 })();
-
-
-
-
