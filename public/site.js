@@ -127,7 +127,17 @@ function openBrandDetails(productName, brandName) {
   if (!brand) return;
   const label = displayBrandName(brand.name, product.name);
   const key = brandDisplayKey(brand.name, product.name);
-  const varieties = brandVarieties[key] || [];
+  const dynamicVarieties = Array.isArray(brand.varieties) ? brand.varieties : [];
+const varieties = dynamicVarieties.length
+  ? dynamicVarieties.map(v => ({
+      name: v.name || '',
+      image: v.product_image || '',
+      available: v.visible !== false,
+      description: v.description || 'Product variety available from Shree Steel. Contact us for current sizes and stock.',
+      source: v.source || '',
+      quoteProduct: v.quoteProduct || product.name
+    }))
+  : (brandVarieties[key] || []);
   const logo = brand.logo || brandLogoPath(brand.name);
   $('brandDetailsTitle').textContent = label;
   $('brandDetailsContent').innerHTML = `
