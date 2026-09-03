@@ -369,6 +369,15 @@ async function initializeDatabase() {
     await db.execute({sql:"UPDATE products SET name='TMT Steel',category='TMT STEEL' WHERE id=?",args:[Number(tmtBars.rows[0].id)]});
   }
 
+  // Remove the obsolete duplicate TMT Bars product when TMT Steel already exists.
+  if(tmtSteel.rows.length && tmtBars.rows.length){
+    const legacyTmtBarsId=Number(tmtBars.rows[0].id);
+    const legacyBrands=await db.execute({sql:'SELECT COUNT(*) AS count FROM brands WHERE product_id=?',args:[legacyTmtBarsId]});
+    if(Number(legacyBrands.rows[0]?.count)===0){
+      await db.execute({sql:'DELETE FROM products WHERE id=?',args:[legacyTmtBarsId]});
+    }
+  }
+
   const coreProducts = [
     ['TMT Steel','TMT STEEL','','Premium TMT reinforcement steel for residential, commercial and project construction.',1,1,'KG'],
     ['Cement','CEMENT','','Trusted cement solutions for foundations, slabs, columns and general construction.',1,2,'BAGS'],
