@@ -140,11 +140,19 @@ async function saveUploadedImage(file,folder,prefix){
 }
 function safeEqual(a,b){const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||''));return aa.length===bb.length&&crypto.timingSafeEqual(aa,bb);}
 async function sendOtpEmail(to,code){
-  const host=process.env.SMTP_HOST,user=process.env.SMTP_USER,pass=process.env.SMTP_PASSWORD;
-  if(!host||!user||!pass)return false;
-  const nodemailer=require('nodemailer');
-  const transport=nodemailer.createTransport({host,port:Number(process.env.SMTP_PORT||465),secure:Number(process.env.SMTP_PORT||465)===465,auth:{user,pass}});
-  await transport.sendMail({from:process.env.SMTP_FROM||user,to,subject:'Shree Steel Admin Verification Code',text:`Your Shree Steel Admin verification code is ${code}.\n\nThis 6-digit code expires in 10 minutes and can be used only once. If you did not request this code, ignore this email.`});
+  const apiKey=process.env.RESEND_API_KEY;
+  if(!apiKey)return false;
+
+  const {Resend}=require('resend');
+  const resend=new Resend(apiKey);
+
+  await resend.emails.send({
+    from:'Shree Steel <onboarding@resend.dev>',
+    to,
+    subject:'Shree Steel Admin Verification Code',
+    text:`Your Shree Steel Admin verification code is ${code}.\n\nThis 6-digit code expires in 10 minutes and can be used only once. If you did not request this code, ignore this email.`
+  });
+
   return true;
 }
 function createAdminSession(res,email,recoveryVerified=false){
