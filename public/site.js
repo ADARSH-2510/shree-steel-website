@@ -148,7 +148,7 @@ const varieties = dynamicVarieties.length
         <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
         <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT â†’</button>
       </article>`).join('')}</div></div>` : `<p class="brand-no-variety">Product details and current sizes are available on enquiry. Request a quote to tell us exactly what you need.</p>`}
-    <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE â†’</button>`;
+    <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE →</button>`;
   $('brandDetailsModal').classList.add('show');
 }
 function closeBrandDetails() { $('brandDetailsModal').classList.remove('show'); }
@@ -211,7 +211,7 @@ async function load() {
       const brandMarkup = productBrands.length
         ? `<div class="trusted-brands"><div class="trusted-brands-label">TRUSTED BRANDS &bull; TAP A BRAND TO VIEW</div><div class="product-brand-list">${productBrands.map(b => brandDetailsMarkup(b, p)).join('')}</div></div>`
         : '';
-      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" onclick="${p.__syntheticPipes ? 'openQuote()' : `openQuoteByName(${JSON.stringify(p.name)})`}">REQUEST MY QUOTE â†’</button></div></article>`;
+      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" onclick="${p.__syntheticPipes ? 'openQuote()' : `openQuoteByName(${JSON.stringify(p.name)})`}">REQUEST MY QUOTE →</button></div></article>`;
     }).join('');
   } catch (error) {
     console.error(error);

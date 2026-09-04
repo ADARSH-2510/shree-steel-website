@@ -174,7 +174,7 @@ async function ensureProductQuoteConfiguration(){
   const configs={
     'TMT Steel':{unit:'KG',options:[['Diameter','8 mm'],['Diameter','10 mm'],['Diameter','12 mm'],['Diameter','16 mm'],['Diameter','20 mm'],['Diameter','25 mm'],['Diameter','32 mm']]},
     'Cement':{unit:'BAGS',options:[['Grade','43 Grade'],['Grade','53 Grade'],['Type','OPC'],['Type','PPC'],['Type','PSC']]},
-    'Roofing Sheets':{unit:'PCS',options:[['Thickness','5.5 mm'],['Thickness','6 mm'],['Length','8 ft'],['Length','10 ft'],['Length','12 ft']]},
+    'Roofing Sheets':{unit:'PCS',options:[['Length','6 ft'],['Length','6.5 ft'],['Length','8 ft'],['Length','10 ft']]},
     'Structural Steel':{unit:'KG',options:[['Section','Angle'],['Section','Channel'],['Section','Beam'],['Section','Plate']]},
     'Bricks':{unit:'PCS',options:[['Type','Red Brick'],['Type','Fly Ash Brick']]},
     'Pipes & Steel Products':{unit:'PCS',options:[['Type','Round Pipe'],['Type','Square Pipe'],['Type','Rectangular Pipe']]}
@@ -343,7 +343,7 @@ async function initializeDatabase() {
     ['Bangur Cement','CEMENT','Cement products','#d51f28','/assets/brands/bangur-cement.jpeg',1],
     ['Everest','ROOFING SOLUTION','Roofing solutions','#d62b25','/assets/brands/everest-roofing.webp',2],
     ['GK TMT','TMT BARS','TMT reinforcement steel','#e32728','/assets/brands/gk-tmt.jpeg',3],
-    ['HIL / BirlaNu','ROOFING SHEETS','Roofing sheets','#1677b8','/assets/brands/hil-birla-nu.png',4],
+    ['HIL Charminar','ROOFING SHEETS','HIL Charminar roofing sheets.','#1677b8','/assets/brands/hil-birla-nu.png',4],
     ['MSP','TMT BARS · STRUCTURALS · PIPES','TMT bars, structurals and pipes','#27398e','/assets/brands/msp-steel.png',6],
     ['Jindal Bricks','BRICKS','Construction bricks','#c45732','',8]
   ];
@@ -403,6 +403,9 @@ async function initializeDatabase() {
 await db.execute("DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='Jindal Panther' AND product_id=(SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1))");
 await db.execute("DELETE FROM brands WHERE name='Jindal Panther' AND product_id=(SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1)");
 await db.execute("DELETE FROM brands WHERE name='Jindal Cement'");
+await db.execute("DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='HIL / BirlaNu' AND product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1))");
+await db.execute("DELETE FROM brands WHERE name='HIL / BirlaNu' AND product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1)");
+await db.execute("DELETE FROM product_options WHERE product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1) AND lower(trim(option_value)) NOT IN ('6 ft','6.5 ft','8 ft','10 ft')");
 await db.execute("DELETE FROM products WHERE lower(name) IN ('structural steel','pipes & steel products')");
   await normalizePriorities('products');
   await normalizePriorities('brands');
