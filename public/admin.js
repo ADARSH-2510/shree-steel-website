@@ -29,22 +29,90 @@ function login(){
   forgot.onclick=()=>forgotForm();
 }
 function forgotForm(){
-  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>Account Recovery</h1><p class="meta">Choose how you want to verify your admin account.</p><div class="recovery-choice"><button class="btn gray" id="knowEmail">I Know My Admin Email</button><button class="btn gray" id="forgotEmail">I Forgot My Admin Email</button></div><p id="msg" class="meta"></p><button class="btn gray" id="back">Back to Login</button></div>`;
+  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>Account Recovery</h1><p class="meta">Choose how you want to recover your admin account.</p><div class="recovery-choice"><button class="btn gray" id="knowEmail">I Know My Admin Email</button><button class="btn gray" id="forgotEmail">I Don't Know My Admin Email</button></div><p id="msg" class="meta"></p><button class="btn gray" id="back">Back to Login</button></div>`;
   knowEmail.onclick=()=>requestOtpForm('admin_email');
-  forgotEmail.onclick=()=>requestOtpForm('recovery_email');
+  forgotEmail.onclick=()=>requestOtpForm('unknown_admin_email');
   back.onclick=login;
 }
+
 function requestOtpForm(mode){
   const adminMode=mode==='admin_email';
-  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>${adminMode?'Verify Admin Email':'Recover Admin Account'}</h1><p class="meta">${adminMode?'Enter your admin email. A 6-digit verification code will be sent to that email.':'Enter one of your configured recovery email addresses. A 6-digit verification code will be sent to that recovery email.'}</p><form id="otpRequestForm" class="form"><input id="identifier" type="email" placeholder="${adminMode?'Admin Email':'Recovery Email'}" autocomplete="email" required><button class="btn blue">SEND 6-DIGIT CODE</button></form><p id="msg" class="meta"></p><button class="btn gray" id="chooseAnother">Choose Another Method</button></div>`;
+
+  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>${adminMode?'Verify Admin Email':'Recover Admin Account'}</h1><p class="meta">${adminMode?'Enter your admin email. A 6-digit verification code will be sent to your configured recovery email.':'You do not need to enter an email. A 6-digit verification code will be sent automatically to your configured recovery email.'}</p>${adminMode?`<form id="otpRequestForm" class="form"><input id="identifier" type="email" placeholder="Admin Email" autocomplete="email" required><button class="btn blue">SEND CODE</button></form>`:`<form id="otpRequestForm" class="form"><button class="btn blue">SEND CODE</button></form>`}<p id="msg" class="meta"></p><button class="btn gray" id="chooseAnother">Choose Another Method</button></div>`;
+
   chooseAnother.onclick=forgotForm;
-  otpRequestForm.onsubmit=async e=>{e.preventDefault();msg.textContent='Sending verification code...';try{const d=await json('/api/admin/otp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,identifier:identifier.value})});if(d.challenge)verifyOtpForm(mode,d.challenge,d.message);else msg.textContent=d.message||'If the account details are correct, a verification code has been sent.'}catch(x){msg.textContent=x.message}};
+
+  otpRequestForm.onsubmit=async e=>{
+    e.preventDefault();
+    msg.textContent='Sending verification code...';
+    try{
+      const d=await json('/api/admin/otp/request',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          mode,
+          identifier:adminMode?identifier.value:''
+        })
+      });
+      if(d.challenge)verifyOtpForm(mode,d.challenge,d.message);
+      else msg.textContent=d.message||'If the account details are correct, a verification code has been sent.';
+    }catch(x){
+      msg.textContent=x.message;
+    }
+  };
 }
+
 function verifyOtpForm(mode,challenge,notice){
-  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>Enter Verification Code</h1><p class="meta">${esc(notice||'A 6-digit code has been sent.')}<br>Enter the 6-digit code to access the Admin Panel.</p><form id="verifyForm" class="form"><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" required><button class="btn blue">VERIFY & ENTER ADMIN</button></form><p id="msg" class="meta"></p><p style="text-align:center"><button class="btn gray" id="resend">Resend Code</button> <button class="btn gray" id="changeMethod">Change Method</button></p></div>`;
-  verifyForm.onsubmit=async e=>{e.preventDefault();msg.textContent='Verifying...';try{const d=await json('/api/admin/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge,code:otp.value})});dashboard(d)}catch(x){msg.textContent=x.message}};
+  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>Enter Verification Code</h1><p class="meta">${esc(notice||'A 6-digit code has been sent.')}<br>Enter the 6-digit code to continue.</p><form id="verifyForm" class="form"><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" required><button class="btn blue">VERIFY CODE</button></form><p id="msg" class="meta"></p><p style="text-align:center"><button class="btn gray" id="resend">Resend Code</button> <button class="btn gray" id="changeMethod">Change Method</button></p></div>`;
+
+  verifyForm.onsubmit=async e=>{
+    e.preventDefault();
+    msg.textContent='Verifying...';
+    try{
+      const d=await json('/api/admin/otp/verify',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({challenge,code:otp.value})
+      });
+      resetPasswordForm(d);
+    }catch(x){
+      msg.textContent=x.message;
+    }
+  };
+
   resend.onclick=()=>requestOtpForm(mode);
   changeMethod.onclick=forgotForm;
+}
+
+function resetPasswordForm(info){
+  app.innerHTML=`<div class="login"><img src="/assets/shree-steel-logo.png" alt="Shree Steel"><h1>Reset Admin Password</h1><p class="meta">Verification successful. Create a new password for your Admin Account.</p><form id="resetForm" class="form">${passwordField('rnew','New Password','new-password').replace(' required',' minlength="8" required')}${passwordField('rconfirm','Confirm New Password','new-password').replace(' required',' minlength="8" required')}<button class="btn blue">RESET PASSWORD</button></form><p id="msg" class="meta"></p></div>`;
+
+  bindPasswordToggles(document.getElementById('resetForm'));
+
+  resetForm.onsubmit=async e=>{
+    e.preventDefault();
+
+    if(rnew.value!==rconfirm.value){
+      msg.textContent='New passwords do not match.';
+      return;
+    }
+
+    try{
+      msg.textContent='Saving new password...';
+
+      await json('/api/admin/password-reset',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({new_password:rnew.value})
+      });
+
+      msg.textContent='Password reset successfully. Opening Admin Panel...';
+
+      setTimeout(()=>dashboard({...info,recovery_verified:true}),500);
+    }catch(x){
+      msg.textContent=x.message;
+    }
+  };
 }
 function dashboard(info){
   me=info;app.innerHTML=`<header class="top"><div class="brand">SHREE STEEL · ADMIN</div><div class="actions"><button class="btn gray" id="settingsBtn">Admin Account</button><button class="btn gray" id="logout">Logout</button></div></header><main class="wrap"><div class="tabs"><button class="tab active" data-tab="products">Products</button><button class="tab" data-tab="brands">Trusted Brands</button><button class="tab" data-tab="enquiries">Enquiries</button></div><div id="content"></div></main>`;

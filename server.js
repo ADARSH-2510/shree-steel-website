@@ -1086,32 +1086,35 @@ async function startServer() {
       }
 
       if(req.method==='POST'&&p==='/api/admin/otp/request'){
-        const x=await body(req),mode=String(x.mode||'').trim(),identifier=String(x.identifier||'').trim().toLowerCase();
-        if(!['admin_email','recovery_email'].includes(mode)||!identifier)return send(res,400,{error:'Choose a recovery method and enter the email address'});
-        let sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts WHERE lower(email)=? LIMIT 1';
-        let args=[identifier];
-        if(mode==='recovery_email'){
-          sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts WHERE lower(recovery_email_1)=? OR lower(recovery_email_2)=? LIMIT 1';
-          args=[identifier,identifier];
-        }
-        const r=await db.execute({sql,args});
-        if(!r.rows.length)return send(res,200,{ok:true,message:'If the account details are correct, a 6-digit verification code has been sent.'});
-        const a=r.rows[0];
-        if(a.otp_last_sent_at&&Date.now()-new Date(a.otp_last_sent_at).getTime()<60000)return send(res,429,{error:'Please wait 60 seconds before requesting another code.'});
-        const destination=mode==='admin_email'?String(a.email||'').toLowerCase():identifier;
-        const challenge=crypto.randomBytes(24).toString('hex'),code=String(crypto.randomInt(100000,1000000));
-        await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash=?,otp_code_hash=?,otp_expires_at=?,otp_purpose=?,otp_attempts=0,otp_last_sent_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[sig(challenge),sig(`${challenge}:${code}`),new Date(Date.now()+10*60*1000).toISOString(),mode,new Date().toISOString(),Number(a.id)]});
-        let delivered=false;try{delivered=await sendOtpEmail(destination,code)}catch(e){console.error('OTP email failed:',e.message)}
-        if(!delivered){
-          if(process.env.NODE_ENV==='production'){
-            await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash='',otp_code_hash='',otp_expires_at='',otp_purpose='',otp_attempts=0 WHERE id=?`,args:[Number(a.id)]});
-            return send(res,503,{error:'Verification email is not configured. Please configure SMTP before using account recovery.'});
-          }
-          console.log(`LOCAL ADMIN OTP for ${destination}: ${code}`);
-        }
-        const masked=destination.replace(/(^.).*(@.*$)/,'$1***$2');
-        return send(res,200,{ok:true,challenge,message:`A 6-digit verification code has been sent to ${masked}. It expires in 10 minutes.`});
-      }
+  const x=await body(req),mode=String(x.mode||'').trim(),identifier=String(x.identifier||'').trim().toLowerCase();
+  if(!['admin_email','unknown_admin_email'].includes(mode))return send(res,400,{error:'Choose a recovery method'});
+  let sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts ORDER BY id LIMIT 1';
+  let args=[];
+  if(mode==='admin_email'){
+    if(!identifier)return send(res,400,{error:'Enter your admin email'});
+    sql='SELECT id,email,recovery_email_1,recovery_email_2,otp_last_sent_at FROM admin_accounts WHERE lower(email)=? LIMIT 1';
+    args=[identifier];
+  }
+  const r=await db.execute({sql,args});
+  if(!r.rows.length)return send(res,200,{ok:true,message:'If the account details are correct, a 6-digit verification code has been sent.'});
+  const a=r.rows[0];
+  const destination=String(a.recovery_email_1||a.recovery_email_2||'').trim().toLowerCase();
+  if(!destination)return send(res,503,{error:'No recovery email is configured for this admin account.'});
+  if(a.otp_last_sent_at&&Date.now()-new Date(a.otp_last_sent_at).getTime()<60000)return send(res,429,{error:'Please wait 60 seconds before requesting another code.'});
+  const challenge=crypto.randomBytes(24).toString('hex'),code=String(crypto.randomInt(100000,1000000));
+  await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash=?,otp_code_hash=?,otp_expires_at=?,otp_purpose=?,otp_attempts=0,otp_last_sent_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[sig(challenge),sig(`${challenge}:${code}`),new Date(Date.now()+10*60*1000).toISOString(),mode,new Date().toISOString(),Number(a.id)]});
+  let delivered=false;
+  try{delivered=await sendOtpEmail(destination,code)}catch(e){console.error('OTP email failed:',e.message)}
+  if(!delivered){
+    if(process.env.NODE_ENV==='production'){
+      await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash='',otp_code_hash='',otp_expires_at='',otp_purpose='',otp_attempts=0 WHERE id=?`,args:[Number(a.id)]});
+      return send(res,503,{error:'Verification email is not configured. Please configure SMTP before using account recovery.'});
+    }
+    console.log(`LOCAL ADMIN OTP for ${destination}: ${code}`);
+  }
+  const masked=destination.replace(/(^.).*(@.*$)/,'$1***$2');
+  return send(res,200,{ok:true,challenge,message:`A 6-digit verification code has been sent to ${masked}. It expires in 10 minutes.`});
+}
 
       if(req.method==='POST'&&p==='/api/admin/otp/verify'){
         const x=await body(req),challenge=String(x.challenge||'').trim(),code=String(x.code||'').replace(/\D/g,'');
@@ -1127,6 +1130,19 @@ async function startServer() {
         }
         await db.execute({sql:`UPDATE admin_accounts SET otp_challenge_hash='',otp_code_hash='',otp_expires_at='',otp_purpose='',otp_attempts=0,otp_last_sent_at='',updated_at=CURRENT_TIMESTAMP WHERE id=?`,args:[Number(a.id)]});
         return createAdminSession(res,a.email,true);
+      }
+
+            if(req.method==='POST'&&p==='/api/admin/password-reset'){
+        if(!need(req,res)||!recoveryAdmin(req))return;
+        const x=await body(req),np=String(x.new_password||'');
+        if(np.length<8)return send(res,400,{error:'New password must be at least 8 characters'});
+        const r=await db.execute('SELECT id FROM admin_accounts ORDER BY id LIMIT 1'),a=r.rows[0];
+        if(!a)return send(res,404,{error:'Admin account not found'});
+        await db.execute({
+          sql:'UPDATE admin_accounts SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+          args:[await bcrypt.hash(np,12),Number(a.id)]
+        });
+        return send(res,200,{ok:true,password_changed:true});
       }
 
       if(req.method==='GET'&&p==='/api/admin/settings'){
