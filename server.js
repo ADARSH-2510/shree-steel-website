@@ -336,9 +336,7 @@ async function initializeDatabase() {
     ['Everest','ROOFING SOLUTION','Roofing solutions','#d62b25','/assets/brands/everest-roofing.webp',2],
     ['GK TMT','TMT BARS','TMT reinforcement steel','#e32728','/assets/brands/gk-tmt.jpeg',3],
     ['HIL / BirlaNu','ROOFING SHEETS','Roofing sheets','#1677b8','/assets/brands/hil-birla-nu.png',4],
-    ['Jindal Panther','TMT BARS','TMT reinforcement steel','#f57b20','/assets/brands/jindal-panther.png',5],
     ['MSP','TMT BARS · STRUCTURALS · PIPES','TMT bars, structurals and pipes','#27398e','/assets/brands/msp-steel.png',6],
-    ['Jindal Cement','CEMENT','Cement products','#27398e','',7],
     ['Jindal Bricks','BRICKS','Construction bricks','#c45732','',8]
   ];
 
@@ -382,9 +380,7 @@ async function initializeDatabase() {
     ['TMT Steel','TMT STEEL','','Premium TMT reinforcement steel for residential, commercial and project construction.',1,1,'KG'],
     ['Cement','CEMENT','','Trusted cement solutions for foundations, slabs, columns and general construction.',1,2,'BAGS'],
     ['Roofing Sheets','ROOFING','','Roofing options for residential, commercial, agricultural and industrial applications.',1,3,'PCS'],
-    ['Structural Steel','STRUCTURAL STEEL','','Beams, channels, angles and structural steel for fabrication and construction requirements.',1,4,'PCS'],
     ['Bricks','MASONRY','','Construction bricks for walls, foundations and building work.',1,5,'PCS'],
-    ['Pipes & Steel Products','STEEL','','Steel pipes and related steel products for construction and industrial requirements.',1,6,'PCS']
   ];
   for(const x of coreProducts){
     const existing=await db.execute({sql:'SELECT id FROM products WHERE name=?',args:[x[0]]});
@@ -393,6 +389,13 @@ async function initializeDatabase() {
   }
   await ensureProductQuoteConfiguration();
   await resolveLegacyBrandProductIds();
+  await resolveLegacyBrandProductIds();
+
+// Permanently remove obsolete catalog records.
+await db.execute("DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='Jindal Panther' AND product_id=(SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1))");
+await db.execute("DELETE FROM brands WHERE name='Jindal Panther' AND product_id=(SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1)");
+await db.execute("DELETE FROM brands WHERE name='Jindal Cement'");
+await db.execute("DELETE FROM products WHERE lower(name) IN ('structural steel','pipes & steel products')");
   await normalizePriorities('products');
   await normalizePriorities('brands');
   const brandRowsForNormalization = await db.execute('SELECT id FROM brands ORDER BY id');
