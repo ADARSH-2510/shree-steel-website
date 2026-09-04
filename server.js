@@ -406,6 +406,7 @@ await db.execute("DELETE FROM brands WHERE name='Jindal Cement'");
 await db.execute("DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='HIL / BirlaNu' AND product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1))");
 await db.execute("DELETE FROM brands WHERE name='HIL / BirlaNu' AND product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1)");
 await db.execute("DELETE FROM product_options WHERE product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1) AND lower(trim(option_value)) NOT IN ('6 ft','6.5 ft','8 ft','10 ft')");
+await db.execute("UPDATE product_options SET sort_order=CASE lower(trim(option_value)) WHEN '6 ft' THEN 1 WHEN '6.5 ft' THEN 2 WHEN '8 ft' THEN 3 WHEN '10 ft' THEN 4 END WHERE product_id=(SELECT id FROM products WHERE lower(name)='roofing sheets' LIMIT 1) AND lower(trim(option_value)) IN ('6 ft','6.5 ft','8 ft','10 ft')");
 await db.execute("DELETE FROM products WHERE lower(name) IN ('structural steel','pipes & steel products')");
   await normalizePriorities('products');
   await normalizePriorities('brands');
