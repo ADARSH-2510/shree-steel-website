@@ -211,7 +211,7 @@ async function load() {
       const brandMarkup = productBrands.length
         ? `<div class="trusted-brands"><div class="trusted-brands-label">TRUSTED BRANDS &bull; TAP A BRAND TO VIEW</div><div class="product-brand-list">${productBrands.map(b => brandDetailsMarkup(b, p)).join('')}</div></div>`
         : '';
-      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" onclick="${p.__syntheticPipes ? 'openQuote()' : `openQuoteByName(${JSON.stringify(p.name)})`}">REQUEST MY QUOTE →</button></div></article>`;
+      return `<article class="product-card">${productVisual(p, i, productBrands)}<div class="product-body"><div class="product-cat">${esc(p.category)}</div><h3>${esc(displayProductName(p.name))}</h3><p>${esc(p.description)}</p>${brandMarkup}<button class="enq" data-product-name="${esc(p.name)}">REQUEST MY QUOTE →</button></div></article>`;
     }).join('');
   } catch (error) {
     console.error(error);
@@ -380,6 +380,12 @@ function resetQuoteForm() {
 }
 $('modal').addEventListener('click', event => { if (event.target.id === 'modal') closeQuote(); });
 document.addEventListener('click', event => {
+  const quoteButton = event.target.closest('.enq');
+  if (quoteButton) {
+    event.preventDefault();
+    openQuoteByName(quoteButton.dataset.productName);
+    return;
+  }
   const brandButton = event.target.closest('.product-brand-button');
   if (brandButton) {
     event.preventDefault();
@@ -825,3 +831,5 @@ load();
   start();
 
 })();
+
+
