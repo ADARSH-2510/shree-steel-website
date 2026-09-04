@@ -67,11 +67,11 @@ function brandLogoPath(name) {
 
 const brandVarieties = {
   'bangur cement': [
-    { name:'Bangur Powermax Cement', image:'/assets/products/bangur-powermax-cement.jpg', available:true, description:'Designed for strong, durable construction with Power Grind technology and a smooth finish, including plastering applications.', source:'https://www.bangurcement.com/product/bangur-powermax' },
-    { name:'Bangur Magna Cement', image:'/assets/products/bangur-magna-cement.jpg', available:true, description:'Designed for solid concrete and strong foundations, slabs and columns, with a formulation focused on rapid solidification and dependable strength.', source:'https://www.bangurcement.com/product/bangur-magna' }
+    { name:'Bangur Powermax Cement', image:'/assets/products/1788349846249-bangur-cement-bangur-powermax-cement.jpg', available:true, description:'Designed for strong, durable construction with Power Grind technology and a smooth finish, including plastering applications.', source:'https://www.bangurcement.com/product/bangur-powermax' },
+    { name:'Bangur Magna Cement', image:'/assets/products/1788349872668-bangur-cement-bangur-magna-cement.png', available:true, description:'Designed for solid concrete and strong foundations, slabs and columns, with a formulation focused on rapid solidification and dependable strength.', source:'https://www.bangurcement.com/product/bangur-magna' }
   ],
   'jindal panther cement': [
-    { name:'Jindal Panther Shield Cement', image:'/assets/products/jindal-panther-shield-cement.png', available:true, description:'A composite cement from the Jindal Panther range, positioned around durability, strength and reliable construction performance.', source:'https://jindalpanthercement.com/' }
+    { name:'Jindal Panther Shield Cement', image:'/assets/products/1788349629519-jindal-panther-cement-jindal-panther-shield-cement.png', available:true, description:'A composite cement from the Jindal Panther range, positioned around durability, strength and reliable construction performance.', source:'https://jindalpanthercement.com/' }
   ],
   'msp pipe': [
     { name:'Round Pipe', image:'/assets/products/msp-pipes.webp', available:true, quoteProduct:'Round Pipes', description:'MSP round steel pipes for construction, fabrication and general structural requirements. Ask Shree Steel for current sizes and stock.', source:'https://products.mspsteel.com/pipes/' },
@@ -146,7 +146,7 @@ const varieties = dynamicVarieties.length
       <article class="brand-variety-card">
         <div class="brand-variety-media">${v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : `<div class="brand-variety-placeholder">${logo ? `<img src="${esc(logo)}" alt="${esc(label)}">` : esc(label.slice(0,2).toUpperCase())}<span>PRODUCT IMAGE</span></div>`}</div>
         <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
-        <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT â†’</button>
+        <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT →</button>
       </article>`).join('')}</div></div>` : `<p class="brand-no-variety">Product details and current sizes are available on enquiry. Request a quote to tell us exactly what you need.</p>`}
     <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE →</button>`;
   $('brandDetailsModal').classList.add('show');
