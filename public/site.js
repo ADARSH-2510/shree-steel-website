@@ -37,7 +37,7 @@ function displayBrandName(value, productName = '') {
     'everest sheet': 'Everest Sheet'
   };
   if (key === 'msp' && normalizeName(productName) === 'tmt steel') return 'MSP PREMIUM TMT BARS';
-  if (key === 'msp' && normalizeName(productName) === 'pipes') return 'MSP PIPE';
+  if (key === 'msp pipes') return 'MSP PIPES';
   if (key === 'msp premium tmt bars') return 'MSP PREMIUM TMT BARS';
   if (key === 'msp steel and power limited') return 'MSP';
   return names[key] || value;
@@ -72,10 +72,6 @@ const brandVarieties = {
   ],
   'jindal panther cement': [
     { name:'Jindal Panther Shield Cement', image:'/assets/products/1788349629519-jindal-panther-cement-jindal-panther-shield-cement.png', available:true, description:'A composite cement from the Jindal Panther range, positioned around durability, strength and reliable construction performance.', source:'https://jindalpanthercement.com/' }
-  ],
-  'msp pipe': [
-    { name:'Round Pipe', image:'/assets/products/msp-pipes.webp', available:true, quoteProduct:'Round Pipes', description:'MSP round steel pipes for construction, fabrication and general structural requirements. Ask Shree Steel for current sizes and stock.', source:'https://products.mspsteel.com/pipes/' },
-    { name:'Square Pipe', image:'/assets/products/msp-pipes.webp', available:true, quoteProduct:'Square Pipes', description:'MSP square steel pipes for construction, fabrication and structural applications. Ask Shree Steel for current sizes and stock.', source:'https://products.mspsteel.com/pipes/' }
   ],
   'msp binding wire': [
     { name:'MSP Binding Wire', image:'', available:true, description:'MSP binding wire for reinforcement tying and construction work. Current coil sizes can be confirmed with Shree Steel.', source:'https://mspsteel.com/' }
@@ -118,10 +114,6 @@ function brandDetailsMarkup(brand, product) {
 
 function openBrandDetails(productName, brandName) {
   let product = products.find(p => normalizeName(p.name) === normalizeName(productName));
-  if (!product && normalizeName(productName) === 'pipes') {
-    const pipeBase = products.find(p => ['round pipes','square pipes'].includes(normalizeName(p.name)));
-    product = { ...(pipeBase || {}), name:'Pipes', category:'Pipes', description:'MSP round and square pipes for construction and fabrication requirements.', brands:'MSP', __syntheticPipes:true };
-  }
   if (!product) return;
   const brand = productBrandData(product).find(b => normalizeName(b.name) === normalizeName(brandName));
   if (!brand) return;
@@ -146,7 +138,7 @@ const varieties = dynamicVarieties.length
       <article class="brand-variety-card">
         <div class="brand-variety-media">${v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : `<div class="brand-variety-placeholder">${logo ? `<img src="${esc(logo)}" alt="${esc(label)}">` : esc(label.slice(0,2).toUpperCase())}<span>PRODUCT IMAGE</span></div>`}</div>
         <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
-        <button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT →</button>
+        ${v.available ? `<button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT →</button>` : ''}
       </article>`).join('')}</div></div>` : `<p class="brand-no-variety">Product details and current sizes are available on enquiry. Request a quote to tell us exactly what you need.</p>`}
     <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE →</button>`;
   $('brandDetailsModal').classList.add('show');
@@ -159,9 +151,6 @@ function productBrandData(product) {
     'tmt steel': ['MSP', 'GK TMT'],
     'cement': ['Bangur Cement', 'Jindal Panther Cement'],
     'roofing sheets': ['HIL Charminar', 'Everest'],
-    'pipes': ['MSP'],
-    'round pipes': ['MSP'],
-    'square pipes': ['MSP'],
     'binding wire': ['MSP'],
     'square construction rings': ['MSP'],
     'bricks': ['Jindal Steel & Power Limited']
@@ -201,11 +190,7 @@ async function load() {
     quoteProducts = (await quoteRes.json()).products || [];
 
     const visibleProducts = products.filter(p => p.available && p.visible !== 0);
-    const pipeProducts = visibleProducts.filter(p => ['round pipes','square pipes'].includes(normalizeName(p.name)));
-    const hasPipeSection = pipeProducts.length > 0;
-    const pipeBase = pipeProducts[0] || { name:'Pipes', category:'Pipes', description:'MSP round and square pipes for construction and fabrication requirements.', brands:'MSP' };
-    const displayProducts = visibleProducts.filter(p => !['round pipes','square pipes'].includes(normalizeName(p.name)));
-    if (hasPipeSection || !displayProducts.some(p => normalizeName(p.name) === 'pipes')) displayProducts.splice(Math.min(3, displayProducts.length), 0, { ...pipeBase, name:'Pipes', category:'Pipes', description:'MSP round and square pipes for construction and fabrication requirements.', brands:'MSP', __syntheticPipes:true });
+const displayProducts = visibleProducts.filter(p => !['round pipes','square pipes'].includes(normalizeName(p.name)));
     $('productGrid').innerHTML = displayProducts.map((p, i) => {
       const productBrands = productBrandData(p);
       const brandMarkup = productBrands.length
@@ -305,9 +290,9 @@ function renderQuoteItemOptions(item) {
     normalQty.querySelector('.qi-quantity').required = true;
     tmtSection.hidden = true;
   }
-  const options = isCement
-    ? (Array.isArray(selectedBrand?.varieties) ? selectedBrand.varieties : []).map(v => ({ name: 'Variant', value: v.name }))
-    : (p?.options || []);
+  const options = Array.isArray(selectedBrand?.varieties) && selectedBrand.varieties.length
+  ? selectedBrand.varieties.map(v => ({ name: 'Variant', value: v.name }))
+  : (p?.options || []);
   spec.innerHTML = `<option value="">Select specification (optional)</option>` + options.map(o => `<option value="${esc(o.value)}">${esc(o.name)}: ${esc(o.value)}</option>`).join('');
   unit.textContent = p?.unit || 'Unit';
 }function renderQuoteItems() {

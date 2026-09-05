@@ -398,6 +398,10 @@ async function initializeDatabase() {
   await ensureProductQuoteConfiguration();
   await resolveLegacyBrandProductIds();
   await resolveLegacyBrandProductIds();
+  const pipesProduct=await db.execute("SELECT id FROM products WHERE lower(name)='pipes' LIMIT 1");
+if(pipesProduct.rows.length){
+  await db.execute({sql:"UPDATE products SET visible=1,available=1 WHERE id=?",args:[Number(pipesProduct.rows[0].id)]});
+}
 
 // Permanently remove obsolete catalog records.
 await db.execute("DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='Jindal Panther' AND product_id=(SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1))");
