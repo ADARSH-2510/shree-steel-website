@@ -150,13 +150,35 @@ async function brandsView(c){
   addBrand.onclick=()=>brandModal();c.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>brandModal(Number(b.dataset.edit)));c.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this brand?'))return;try{await json('/api/admin/brands/'+b.dataset.delete,{method:'DELETE'});render()}catch(e){alert(e.message)}});
 }
 function varietyRowHtml(v={},i=0){
-  return `<div class="variety-row" data-variety-row><div class="variety-row-head"><b>Variety ${i+1}</b><button type="button" class="btn gray" data-remove-variety>Remove</button></div><input data-variety-name placeholder="Brand Variety Name (e.g. Powermax)" value="${esc(v.name||'')}"><label class="meta">Priority <input data-variety-priority type="number" min="1" step="1" value="${Math.max(1,Number(v.sort_order)||i+1)}" required></label><label class="meta">Product Image<input data-variety-image type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>${v.product_image?`<div class="meta" data-current-image="${esc(v.product_image)}">Current image: <a href="${esc(v.product_image)}" target="_blank">${esc(v.product_image)}</a></div>`:''}</div>`;
+  const available=v.visible!==false && Number(v.visible)!==0;
+  return `<div class="variety-row" data-variety-row>
+    <div class="variety-row-head"><b>Variety ${i+1}</b><button type="button" class="btn gray" data-remove-variety>Remove</button></div>
+    <input data-variety-name placeholder="Brand Variety Name (e.g. Powermax)" value="${esc(v.name||'')}">
+    <label class="meta">Priority
+      <input data-variety-priority type="number" min="1" step="1" value="${Math.max(1,Number(v.sort_order)||i+1)}" required>
+    </label>
+    <label class="meta">Availability
+      <select data-variety-availability>
+        <option value="1" ${available?'selected':''}>Available</option>
+        <option value="0" ${!available?'selected':''}>Unavailable</option>
+      </select>
+    </label>
+    <label class="meta">Product Image
+      <input data-variety-image type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    </label>
+    ${v.product_image?`<div class="meta" data-current-image="${esc(v.product_image)}">Current image: <a href="${esc(v.product_image)}" target="_blank">${esc(v.product_image)}</a></div>`:''}
+  </div>`;
 }
 async function brandModal(id=null){
   const b=id?brands.find(x=>Number(x.id)===id):null;
   const options=products.map(p=>`<option value="${p.id}" ${Number(b?.product_id)===Number(p.id)?'selected':''}>${esc(p.name)}</option>`).join('');
-  const initial=b?.varieties?.length?b.varieties:[{name:'',product_image:'',sort_order:1}];
-  const el=modal(b?'Edit Brand':'Add Trusted Brand',`<form id="brandForm" class="form"><input id="bname" placeholder="Brand Name" value="${esc(b?.name||'')}" required><label class="meta">Product (this brand belongs to)<select id="bproduct" required><option value="">Select Product</option>${options}</select></label><textarea id="bdesc" placeholder="Brand Description">${esc(b?.description||'')}</textarea><label class="meta">Brand Logo<input id="blogo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>${b?.logo?`<div class="meta">Current logo: <a href="${esc(b.logo)}" target="_blank">${esc(b.logo)}</a></div>`:''}<div class="meta">Brand order follows the Product order. Brands do not have an independent priority. Use Variety Priority below to control the order of varieties within this brand.</div><div class="variety-section"><div class="variety-section-head"><div><h3>Brand Varieties</h3><div class="meta">Add each variety separately. Each variety has its own priority and product image.</div></div><button type="button" class="btn gray" id="addVariety">+ ADD VARIETY</button></div><div id="varietyList"></div></div><div class="actions"><button class="btn blue">SAVE BRAND</button></div><p id="formMsg" class="meta"></p></form>`);
+  const initial=b?.varieties?.length?b.varieties:[];
+  const el=modal(b?'Edit Brand':'Add Trusted Brand',`<form id="brandForm" class="form"><input id="bname" placeholder="Brand Name" value="${esc(b?.name||'')}" required><label class="meta">Product (this brand belongs to)<select id="bproduct" required><option value="">Select Product</option>${options}</select></label>${b?.varieties?.length?'':`<label class="meta">Availability
+<select id="bavailability">
+<option value="1" ${b?.visible!==false&&Number(b?.visible)!==0?'selected':''}>Available</option>
+<option value="0" ${b?.visible===false||Number(b?.visible)===0?'selected':''}>Unavailable</option>
+</select>
+</label>`}<textarea id="bdesc" placeholder="Brand Description">${esc(b?.description||'')}</textarea><label class="meta">Brand Logo<input id="blogo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>${b?.logo?`<div class="meta">Current logo: <a href="${esc(b.logo)}" target="_blank">${esc(b.logo)}</a></div>`:''}<div class="meta">Brand order follows the Product order. Brands do not have an independent priority. Use Variety Priority below to control the order of varieties within this brand.</div><div class="variety-section"><div class="variety-section-head"><div><h3>Brand Varieties</h3><div class="meta">Add each variety separately. Each variety has its own priority and product image.</div></div><button type="button" class="btn gray" id="addVariety">+ ADD VARIETY</button></div><div id="varietyList"></div></div><div class="actions"><button class="btn blue">SAVE BRAND</button></div><p id="formMsg" class="meta"></p></form>`);
   const list=el.querySelector('#varietyList');
   const renumberVarieties=()=>list.querySelectorAll('[data-variety-row]').forEach((row,i)=>{row.querySelector('.variety-row-head b').textContent=`Variety ${i+1}`;row.querySelector('[data-variety-priority]').value=i+1});
   const reorderVarietyRows=(changedRow)=>{
@@ -172,7 +194,10 @@ async function brandModal(id=null){
   initial.forEach(v=>addRow(v));
   renumberVarieties();
   addVariety.onclick=()=>addRow({name:'',product_image:'',sort_order:list.querySelectorAll('[data-variety-row]').length+1});
-  brandForm.onsubmit=async e=>{e.preventDefault();formMsg.textContent='Saving...';const fd=new FormData();fd.append('name',bname.value);fd.append('product_id',bproduct.value);fd.append('description',bdesc.value);if(blogo.files[0])fd.append('logo',blogo.files[0]);const vars=[];list.querySelectorAll('[data-variety-row]').forEach((row,i)=>{const name=row.querySelector('[data-variety-name]').value.trim();const file=row.querySelector('[data-variety-image]').files[0];const current=row.querySelector('[data-current-image]')?.getAttribute('data-current-image')||'';if(name){const item={name,product_image:current,sort_order:i+1};if(file){const field=`variety_image_${i}`;fd.append(field,file);item.fileIndex=i}vars.push(item)}});fd.append('varieties',JSON.stringify(vars));try{await json(id?'/api/admin/brands/'+id:'/api/admin/brands',{method:id?'PUT':'POST',body:fd});el.remove();render()}catch(x){formMsg.textContent=x.message}};
+  brandForm.onsubmit=async e=>{e.preventDefault();formMsg.textContent='Saving...';const fd=new FormData();fd.append('name',bname.value);fd.append('product_id',bproduct.value);
+if(!b?.varieties?.length)fd.append('visible',Number(el.querySelector('#bavailability')?.value)?1:0);
+fd.append('description',bdesc.value);if(blogo.files[0])fd.append('logo',blogo.files[0]);const vars=[];list.querySelectorAll('[data-variety-row]').forEach((row,i)=>{const name=row.querySelector('[data-variety-name]').value.trim();const file=row.querySelector('[data-variety-image]').files[0];const current=row.querySelector('[data-current-image]')?.getAttribute('data-current-image')||'';if(name){const visible=Number(row.querySelector('[data-variety-availability]').value)?1:0;
+const item={name,product_image:current,sort_order:i+1,visible};if(file){const field=`variety_image_${i}`;fd.append(field,file);item.fileIndex=i}vars.push(item)}});fd.append('varieties',JSON.stringify(vars));try{await json(id?'/api/admin/brands/'+id:'/api/admin/brands',{method:id?'PUT':'POST',body:fd});el.remove();render()}catch(x){formMsg.textContent=x.message}};
 }
 async function enquiriesView(c){
   let data=[];try{data=await json('/api/admin/quotes')}catch{try{data=await json('/api/admin/enquiries')}catch{}}

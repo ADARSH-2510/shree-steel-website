@@ -473,6 +473,7 @@ async function saveBrandVarieties(brandId,brandName,rawVarieties,files){
     name:String(v?.name||'').trim(),
     product_image:String(v?.product_image||'').trim(),
     sort_order:Math.max(1,Number(v?.sort_order)||i+1),
+    visible:Number(v?.visible)?1:0,
     file_index:Number.isInteger(Number(v?.fileIndex))?Number(v.fileIndex):null
   })).filter(v=>v.name);
   for(let i=0;i<varieties.length;i++){
@@ -481,7 +482,7 @@ async function saveBrandVarieties(brandId,brandName,rawVarieties,files){
   }
   await db.execute({sql:'DELETE FROM brand_varieties WHERE brand_id=?',args:[brandId]});
   for(const v of varieties){
-    await db.execute({sql:'INSERT INTO brand_varieties(brand_id,name,product_image,sort_order,visible) VALUES(?,?,?,?,1)',args:[brandId,v.name,v.product_image,v.sort_order]});
+    await db.execute({sql:'INSERT INTO brand_varieties(brand_id,name,product_image,sort_order,visible) VALUES(?,?,?,?,?)',args:[brandId,v.name,v.product_image,v.sort_order,v.visible]});
   }
   await normalizePriorities('brand_varieties','brand_id=?',[brandId]);
 }
@@ -597,10 +598,10 @@ async function startServer() {
         return send(res,200,rows);
       }
       if (req.method === 'GET' && p === '/api/brands') {
-        const r=await db.execute(`SELECT b.*,p.name AS product_name FROM brands b LEFT JOIN products p ON p.id=b.product_id WHERE COALESCE(b.visible,1)=1 ORDER BY COALESCE(p.sort_order,999999),p.id,b.id`);
+        const r=await db.execute(`SELECT b.*,p.name AS product_name FROM brands b LEFT JOIN products p ON p.id=b.product_id ORDER BY COALESCE(p.sort_order,999999),p.id,b.id`);
         const rows=[];
         for(const b of r.rows){
-          const vr=await db.execute({sql:`SELECT id,name,product_image,sort_order,visible FROM brand_varieties WHERE brand_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id`,args:[Number(b.id)]});
+          const vr=await db.execute({sql:`SELECT id,name,product_image,sort_order,visible FROM brand_varieties WHERE brand_id=? ORDER BY sort_order,id`,args:[Number(b.id)]});
           rows.push({...b,varieties:vr.rows.map(v=>({id:Number(v.id),name:v.name,product_image:v.product_image||'',sort_order:Number(v.sort_order)||0,visible:Number(v.visible)!==0}))});
         }
         return send(res,200,rows);
