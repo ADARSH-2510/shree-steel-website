@@ -88,10 +88,6 @@ const brandVarieties = {
   'hil charminar sheet': [
     { name:'HIL Charminar Sheet', image:'/assets/products/hil-charminar-sheet.jpg', available:true, description:'HIL Charminar fibre-cement roofing sheets for durable roofing applications across homes, sheds and buildings.', source:'https://hil.in/' }
   ],
-  'everest sheet': [
-    { name:'Everest Coloured AC Sheet', image:'/assets/products/everest-sheet.jpg', available:true, description:'Everest coloured roofing sheets for durable roof coverage with a practical range of colour options.', source:'https://www.everestind.com/roofing/fibre-cement-roofing' },
-    { name:'Everest Hi-Tech Roofing Sheet', image:'/assets/products/everest-sheet.jpg', available:true, description:'A fibre-cement roofing solution designed for demanding environments, with strength and durable performance.', source:'https://www.everestind.com/' }
-  ],
   'jindal steel power limited': [
     { name:'Jindal Steel & Power Limited Bricks', image:'/assets/products/jindal-bricks.jpg', available:true, description:'Jindal Steel & Power construction bricks for walling and general building requirements. Confirm current size and availability with Shree Steel.', source:'https://www.jindalsteelpower.com/' }
   ],
