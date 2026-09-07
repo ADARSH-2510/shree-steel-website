@@ -580,6 +580,312 @@ function staticFile(res, file) {
   });
 }
 
+
+
+function productPageSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function productPageEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function productPageUrl(productName, brandName, varietyName) {
+  const parts = ['/products', productPageSlug(productName)];
+
+  if (brandName) parts.push(productPageSlug(brandName));
+  if (varietyName) parts.push(productPageSlug(varietyName));
+
+  return parts.join('/');
+}
+
+async function findProductPageData(pathParts) {
+  if (!Array.isArray(pathParts) || pathParts.length < 1 || pathParts.length > 3) {
+    return null;
+  }
+
+  const productSlug = pathParts[0];
+  const productResult = await db.execute({
+    sql: 'SELECT * FROM products WHERE available=1 AND visible=1 ORDER BY sort_order,id',
+    args: []
+  });
+
+  const product = productResult.rows.find(
+    p => productPageSlug(p.name) === productSlug
+  );
+
+  if (!product) return null;
+
+  const brandResult = await db.execute({
+    sql: 'SELECT * FROM brands WHERE product_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id',
+    args: [Number(product.id)]
+  });
+
+  const brands = [];
+
+  for (const brand of brandResult.rows) {
+    const varietyResult = await db.execute({
+      sql: 'SELECT id,name,product_image,sort_order,visible FROM brand_varieties WHERE brand_id=? ORDER BY sort_order,id',
+      args: [Number(brand.id)]
+    });
+
+    brands.push({
+      ...brand,
+      varieties: varietyResult.rows
+    });
+  }
+
+  if (pathParts.length === 1) {
+    return { level: 'product', product, brands };
+  }
+
+  const brand = brands.find(
+    b => productPageSlug(b.name) === pathParts[1]
+  );
+
+  if (!brand) return null;
+
+  if (pathParts.length === 2) {
+    return { level: 'brand', product, brand, brands };
+  }
+
+  const variety = brand.varieties.find(
+    v => productPageSlug(v.name) === pathParts[2] && Number(v.visible) !== 0
+  );
+
+  if (!variety) return null;
+
+  return {
+    level: 'variety',
+    product,
+    brand,
+    variety,
+    brands
+  };
+}
+
+function renderProductPage(data, req) {
+  const product = data.product;
+  const brand = data.brand;
+  const variety = data.variety;
+
+  let title = product.name;
+  let description = product.description || '';
+
+  if (data.level === 'brand') {
+    title = brand.name + ' - ' + product.name;
+    description = brand.description || description;
+  }
+
+  if (data.level === 'variety') {
+    title = variety.name + ' - ' + brand.name + ' - ' + product.name;
+    description =
+      'Enquire about ' + variety.name + ' from ' + brand.name +
+      ' through Shree Steel Ambikapur.';
+  }
+
+  const slugParts = [productPageSlug(product.name)];
+  if (brand) slugParts.push(productPageSlug(brand.name));
+  if (variety) slugParts.push(productPageSlug(variety.name));
+
+  const canonical =
+    'https://shreesteelambikapur.up.railway.app/products/' +
+    slugParts.join('/');
+
+  const heading =
+    data.level === 'variety'
+      ? variety.name
+      : data.level === 'brand'
+        ? brand.name
+        : product.name;
+
+  const subheading =
+    data.level === 'variety'
+      ? brand.name + ' � ' + product.name
+      : data.level === 'brand'
+        ? product.name
+        : product.category || 'Construction Materials';
+
+  const logo = brand && brand.logo ? brand.logo : '';
+
+  const brandsMarkup = data.brands.length
+    ? data.brands.map(b => {
+        const href = productPageUrl(product.name, b.name);
+        const bLogo = b.logo || '';
+
+        return '<a class="product-page-brand" href="' +
+          productPageEscape(href) + '">' +
+          (bLogo
+            ? '<img src="' + productPageEscape(bLogo) +
+              '" alt="' + productPageEscape(b.name) + ' logo">'
+            : '') +
+          '<strong>' + productPageEscape(b.name) + '</strong>' +
+          '</a>';
+      }).join('')
+    : '<p>No brand information is currently listed.</p>';
+
+  const varietiesMarkup =
+    data.level !== 'product' && brand && brand.varieties.length
+      ? '<div class="product-page-varieties"><h2>Available Products / Varieties</h2>' +
+        brand.varieties.filter(v => Number(v.visible) !== 0).map(v => {
+          const href = productPageUrl(product.name, brand.name, v.name);
+          return '<a class="product-page-variety" href="' +
+            productPageEscape(href) + '">' +
+            (v.product_image
+              ? '<img src="' + productPageEscape(v.product_image) +
+                '" alt="' + productPageEscape(v.name) + '">'
+              : '') +
+            '<strong>' + productPageEscape(v.name) + '</strong>' +
+            '</a>';
+        }).join('') +
+        '</div>'
+      : '';
+
+  const varietyImage =
+    variety && variety.product_image
+      ? '<img class="product-page-main-image" src="' +
+        productPageEscape(variety.product_image) +
+        '" alt="' + productPageEscape(variety.name) + '">'
+      : '';
+
+  return '<!doctype html>' +
+    '<html lang="en"><head>' +
+    '<meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="robots" content="index,follow">' +
+    '<link rel="canonical" href="' + productPageEscape(canonical) + '">' +
+    '<link rel="icon" type="image/png" href="/assets/shree-steel-favicon.png">' +
+    '<meta name="description" content="' +
+      productPageEscape(description) + '">' +
+    '<meta property="og:type" content="website">' +
+    '<meta property="og:site_name" content="Shree Steel">' +
+    '<meta property="og:title" content="' +
+      productPageEscape(title + ' | Shree Steel Ambikapur') + '">' +
+    '<meta property="og:description" content="' +
+      productPageEscape(description) + '">' +
+    '<meta property="og:url" content="' +
+      productPageEscape(canonical) + '">' +
+    '<title>' +
+      productPageEscape(title + ' | Shree Steel Ambikapur') +
+    '</title>' +
+    '<link rel="preconnect" href="https://fonts.googleapis.com">' +
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">' +
+    '<link rel="stylesheet" href="/site.css">' +
+    '<style>' +
+      '.product-page{padding:90px 0;background:#f5f8fc;min-height:70vh}' +
+      '.product-page-card{background:#fff;border:1px solid #e4e9f2;border-radius:28px;padding:38px;box-shadow:0 12px 40px rgba(20,28,60,.08)}' +
+      '.product-page-kicker{font-size:11px;color:#087fe3;font-weight:900;letter-spacing:.13em;text-transform:uppercase}' +
+      '.product-page h1{font-size:clamp(38px,5vw,64px);line-height:1;letter-spacing:-.05em;color:#19104f;margin:12px 0}' +
+      '.product-page-sub{color:#687184;font-weight:800;font-size:12px}' +
+      '.product-page-description{max-width:780px;color:#687184;line-height:1.8;font-size:15px;margin:22px 0}' +
+      '.product-page-main-image{display:block;max-width:420px;max-height:320px;width:100%;object-fit:contain;margin:20px 0;border-radius:18px}' +
+      '.product-page-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:25px}' +
+      '.product-page-brands,.product-page-varieties{margin-top:45px}' +
+      '.product-page-brands h2,.product-page-varieties h2{font-size:25px;color:#19104f}' +
+      '.product-page-brand,.product-page-variety{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #e1e6ef;border-radius:15px;background:#fafbfe;margin-top:10px}' +
+      '.product-page-brand img,.product-page-variety img{width:80px;height:55px;object-fit:contain;background:#fff;border-radius:9px;padding:5px}' +
+      '.product-page-variety{display:inline-flex;margin-right:10px;vertical-align:top}' +
+      '.product-page-back{display:inline-block;margin-bottom:25px;color:#087fe3;font-weight:900;font-size:11px}' +
+      '@media(max-width:600px){.product-page{padding:60px 0}.product-page-card{padding:24px}.product-page-actions .btn{width:100%}}' +
+    '</style></head><body>' +
+    '<header><div class="container nav">' +
+      '<a href="/"><img src="/assets/shree-steel-logo.png" class="logo" alt="Shree Steel"></a>' +
+      '<nav><a href="/">HOME</a><a href="/#products">PRODUCTS &amp; BRANDS</a><a href="/#calculator">CALCULATOR</a><a href="/#about">ABOUT</a><a href="/#contact">CONTACT</a></nav>' +
+      '<a class="btn primary" href="/#contact">GET A QUOTE</a>' +
+      '<button class="hamb" type="button" onclick="document.querySelector(\'nav\').classList.toggle(\'mobile\')">?</button>' +
+    '</div></header>' +
+    '<main class="product-page"><div class="container">' +
+      '<a class="product-page-back" href="/#products">? BACK TO PRODUCTS</a>' +
+      '<article class="product-page-card">' +
+        '<div class="product-page-kicker">' + productPageEscape(subheading) + '</div>' +
+        '<h1>' + productPageEscape(heading) + '</h1>' +
+        '<p class="product-page-description">' + productPageEscape(description) + '</p>' +
+        varietyImage +
+        '<div class="product-page-actions">' +
+          '<a class="btn primary" href="/#contact">REQUEST A QUOTE ?</a>' +
+          '<a class="btn ghost" href="/#products">VIEW ALL PRODUCTS</a>' +
+        '</div>' +
+        (data.level === 'product'
+          ? '<section class="product-page-brands"><h2>Trusted Brands</h2>' +
+            brandsMarkup + '</section>'
+          : '') +
+        varietiesMarkup +
+      '</article>' +
+    '</div></main>' +
+    '<footer><div class="container"><div class="copyright">� Shree Steel Ambikapur. All rights reserved.</div></div></footer>' +
+    '</body></html>';
+}
+
+
+async function productPageSitemapXml() {
+  const baseUrl = 'https://shreesteelambikapur.up.railway.app';
+
+  const productResult = await db.execute({
+    sql: 'SELECT id,name FROM products WHERE available=1 AND visible=1 ORDER BY sort_order,id',
+    args: []
+  });
+
+  const urls = [`${baseUrl}/`];
+
+  for (const product of productResult.rows) {
+    const productUrl =
+      `${baseUrl}/products/${productPageSlug(product.name)}`;
+
+    urls.push(productUrl);
+
+    const brandResult = await db.execute({
+      sql: 'SELECT id,name FROM brands WHERE product_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id',
+      args: [Number(product.id)]
+    });
+
+    for (const brand of brandResult.rows) {
+      const brandUrl =
+        `${productUrl}/${productPageSlug(brand.name)}`;
+
+      urls.push(brandUrl);
+
+      const varietyResult = await db.execute({
+        sql: 'SELECT name FROM brand_varieties WHERE brand_id=? AND COALESCE(visible,1)=1 ORDER BY sort_order,id',
+        args: [Number(brand.id)]
+      });
+
+      for (const variety of varietyResult.rows) {
+        urls.push(
+          `${brandUrl}/${productPageSlug(variety.name)}`
+        );
+      }
+    }
+  }
+
+  const escapeXml = value => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(url => `  <url>
+    <loc>${escapeXml(url)}</loc>
+  </url>`).join('\n')}
+</urlset>`;
+}
+
+
 async function startServer() {
   await initializeDatabase();
 
@@ -1361,6 +1667,41 @@ async function startServer() {
         });
       }
 
+      if (req.method === 'GET' && p === '/sitemap.xml') {
+        const sitemapXml = await productPageSitemapXml();
+
+        res.writeHead(200, {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': 'no-cache'
+        });
+
+        return res.end(sitemapXml);
+      }
+      if (req.method === 'GET' && p === '/products') {
+        return send(res, 404, 'Product not found');
+      }
+
+      if (req.method === 'GET' && p.startsWith('/products/')) {
+        const productPathParts = p
+          .replace(/^\/products\//, '')
+          .split('/')
+          .filter(Boolean)
+          .map(decodeURIComponent);
+
+        const productPageData = await findProductPageData(productPathParts);
+
+        if (!productPageData) {
+          return send(res, 404, 'Product not found');
+        }
+
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache'
+        });
+
+        return res.end(renderProductPage(productPageData, req));
+      }
+
       if (req.method === 'GET') {
         if (p === '/admin') {
           return staticFile(
@@ -1406,6 +1747,8 @@ startServer().catch(error => {
   console.error('Database initialization failed:', error);
   process.exit(1);
 });
+
+
 
 
 
