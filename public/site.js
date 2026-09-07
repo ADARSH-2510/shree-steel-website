@@ -129,9 +129,12 @@ function brandDisplayKey(brandName, productName='') {
 function brandDetailsMarkup(brand, product) {
   const label = displayBrandName(brand.name, product.name);
   const logo = brand.logo || brandLogoPath(brand.name);
-  return `<button type="button" class="product-brand product-brand-button" data-brand-name="${esc(brand.name)}" data-product-name="${esc(product.name)}" aria-label="View ${esc(label)} details">${logo ? `<img src="${esc(logo)}" alt="${esc(label)} logo" loading="lazy">` : ''}<span class="product-brand-name">${esc(label)}</span><span class="brand-tap-hint">TAP TO VIEW</span></button><a class="brand-page-link" href="${esc(internalProductPageUrl(product.name, brand.name))}">VIEW BRAND PAGE →</a>`;
-}
 
+  return `<button type="button" class="product-brand product-brand-button"
+data-brand-name="${esc(brand.name)}" data-product-name="${esc(product.name)}" aria-label="View ${esc(label)} details">${logo ?
+`<img src="${esc(logo)}" alt="${esc(label)} logo" loading="lazy">` : ''}<span
+class="product-brand-name">${esc(label)}</span><span class="brand-tap-hint">TAP TO VIEW</span></button>`;
+}
 function openBrandDetails(productName, brandName) {
   let product = products.find(p => normalizeName(p.name) === normalizeName(productName));
   if (!product) return;
@@ -142,6 +145,7 @@ function openBrandDetails(productName, brandName) {
   const dynamicVarieties = Array.isArray(brand.varieties) ? brand.varieties : [];
 const varieties = dynamicVarieties.length
   ? dynamicVarieties.map(v => ({
+      id: v.id || null,
       name: v.name || '',
       image: v.product_image || '',
       available: v.visible !== false,
@@ -157,7 +161,9 @@ const varieties = dynamicVarieties.length
     ${varieties.length ? `<div class="brand-variety-block"><strong>PRODUCTS / VARIETIES</strong><div class="brand-variety-cards">${varieties.map(v => `
       <article class="brand-variety-card">
         <div class="brand-variety-media">${v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : `<div class="brand-variety-placeholder">${logo ? `<img src="${esc(logo)}" alt="${esc(label)}">` : esc(label.slice(0,2).toUpperCase())}<span>PRODUCT IMAGE</span></div>`}</div>
-        <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p><a class="variety-page-link" href="${esc(internalProductPageUrl(product.name, brand.name, v.name))}">VIEW PRODUCT PAGE →</a><div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
+        <div class="brand-variety-copy"><h4>${esc(v.name)}</h4><p>${esc(v.description)}</p>${v.id
+  ? `<a class="variety-page-link" href="${esc(internalProductPageUrl(product.name, brand.name, v.name))}">VIEW PRODUCT PAGE →</a>`
+  : ''}<div class="availability ${v.available ? 'is-available' : 'is-unavailable'}"><span></span>${v.available ? 'AVAILABLE' : 'CURRENTLY UNAVAILABLE'}</div>${v.source ? `<a class="official-source" href="${esc(v.source)}" target="_blank" rel="noopener">OFFICIAL PRODUCT SOURCE â†’</a>` : ''}</div>
         ${v.available ? `<button type="button" class="btn primary variety-quote" data-product-name="${esc(v.quoteProduct || product.name)}" data-variety-name="${esc(v.name)}">REQUEST THIS PRODUCT →</button>` : ''}
       </article>`).join('')}</div></div>` : `<p class="brand-no-variety">Product details and current sizes are available on enquiry. Request a quote to tell us exactly what you need.</p>`}
     <button type="button" class="btn primary brand-detail-quote" data-product-name="${esc(product.name)}">REQUEST MY QUOTE →</button>`;
