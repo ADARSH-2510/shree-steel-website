@@ -344,7 +344,6 @@ async function initializeDatabase() {
     ['Everest','ROOFING SOLUTION','Roofing solutions','#d62b25','/assets/brands/everest-roofing.webp',2],
     ['GK TMT','TMT BARS','TMT reinforcement steel','#e32728','/assets/brands/gk-tmt.jpeg',3],
     ['HIL Charminar','ROOFING SHEETS','HIL Charminar roofing sheets.','#1677b8','/assets/brands/hil-birla-nu.png',4],
-    ['MSP','TMT BARS · STRUCTURALS · PIPES','TMT bars, structurals and pipes','#27398e','/assets/brands/msp-steel.png',6],
     ['Jindal Bricks','BRICKS','Construction bricks','#c45732','',8]
   ];
 
@@ -396,6 +395,19 @@ async function initializeDatabase() {
     else { const next=await appendPriority('products'); await db.execute({sql:`INSERT INTO products(name,category,brands,description,available,sort_order,visible,default_unit) VALUES(?,?,?,?,?,?,?,?)`,args:[x[0],x[1],x[2],x[3],x[4],next,1,x[6]]}); }
   }
   await ensureProductQuoteConfiguration();
+  // Remove obsolete duplicate MSP brand from TMT Steel.
+  const tmtForMspCleanup = await db.execute("SELECT id FROM products WHERE lower(name)='tmt steel' LIMIT 1");
+  if (tmtForMspCleanup.rows.length) {
+    const tmtIdForMspCleanup = Number(tmtForMspCleanup.rows[0].id);
+    await db.execute({
+      sql: "DELETE FROM brand_varieties WHERE brand_id IN (SELECT id FROM brands WHERE name='MSP' AND product_id=?)",
+      args: [tmtIdForMspCleanup]
+    });
+    await db.execute({
+      sql: "DELETE FROM brands WHERE name='MSP' AND product_id=?",
+      args: [tmtIdForMspCleanup]
+    });
+  }       
   await resolveLegacyBrandProductIds();
   await resolveLegacyBrandProductIds();
   const pipesProduct=await db.execute("SELECT id FROM products WHERE lower(name)='pipes' LIMIT 1");
@@ -808,14 +820,14 @@ function renderProductPage(data, req) {
       '<button class="hamb" type="button" onclick="document.querySelector(\'nav\').classList.toggle(\'mobile\')">?</button>' +
     '</div></header>' +
     '<main class="product-page"><div class="container">' +
-      '<a class="product-page-back" href="/#products">? BACK TO PRODUCTS</a>' +
+      '<a class="product-page-back" href="/#products">&#8592; BACK TO PRODUCTS</a>' +
       '<article class="product-page-card">' +
         '<div class="product-page-kicker">' + productPageEscape(subheading) + '</div>' +
         '<h1>' + productPageEscape(heading) + '</h1>' +
         '<p class="product-page-description">' + productPageEscape(description) + '</p>' +
         varietyImage +
         '<div class="product-page-actions">' +
-          '<a class="btn primary" href="/#contact">REQUEST A QUOTE ?</a>' +
+          '<a class="btn primary" href="/?quote=' + encodeURIComponent(product.name) + '">REQUEST A QUOTE →</a>' +
           '<a class="btn ghost" href="/#products">VIEW ALL PRODUCTS</a>' +
         '</div>' +
         (data.level === 'product'
